@@ -1,24 +1,26 @@
 import os
-import re
 import pandas as pd
 import io
 import pytesseract
 import fitz
+import re
 import camelot
-from PyPDF2 import PdfReader
-from PIL import Image
+from secrets import PDF_DIR, CSV_FILE
 
-from secrets import PDF_DIR
-from secrets import CSV_FILE
+# Function to get a list of PDF files in a directory and its subdirectories
+def get_pdf_files_recursive(directory):
+    pdf_files = []
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if file.lower().endswith('.pdf'):
+                pdf_files.append(os.path.join(root, file))
+    return pdf_files
 
-# Define the directory path where your PDFs are located and the name of the csv file (pulled from secrets)
-pdf_directory = PDF_DIR
-csv_file = CSV_FILE
-
-# Define the header and data pattern for use in recognition
-# header_pattern = r"Date\s+Description\s+Withdrawals ($)\s+Deposits ($)\s+Balance ($)"
-header_pattern = r"Date"
-data_pattern = r""
+# Function to extract tables from the PDF using Camelot
+def extract_tables_with_camelot(pdf_path):
+    tables = camelot.read_pdf(pdf_path, flavor='stream')
+    dataframes = [table.df for table in tables]
+    return dataframes
 
 # Function to preprocess the PDF and extract text using OCR
 def preprocess_pdf_and_extract_text(pdf_path):
@@ -28,78 +30,52 @@ def preprocess_pdf_and_extract_text(pdf_path):
         page = pdf_document[page_num]
         image_blob = page.get_pixmap().tobytes()
         image = Image.open(io.BytesIO(image_blob)).convert("RGB")
-        extracted_text += pytesseract.image_to_string(image)
+        extracted_text_page = pytesseract.image_to_string(image)
+        extracted_text += extracted_text_page
+        print(extracted_text_page)  # Print extracted text for each page
     pdf_document.close()
     return extracted_text
 
-def extract_header_from_ocr(ocr_text):
-    header_match = re.search(header_pattern, ocr_text)
-    if header_match:
-        header = header_match.group()
-        return header.strip().split()
-    else:
-        return None
-
-def extract_columns_from_ocr(ocr_text):
-    # Extract the header row from the OCR output
-    header = extract_header_from_ocr(ocr_text)
-
-    # If header extraction was successful, find the starting index of each column
-    if header:
-        col_indices = [ocr_text.index(header[col]) for col in header]
-        col_indices.append(len(ocr_text))  # Add the end index
-
-        # Extract columns of data based on the indices
-        columns = [ocr_text[col_indices[i]:col_indices[i + 1]] for i in range(len(col_indices) - 1)]
-        return columns
-    else:
-        return None
-
+# Function to extract data from the OCR output and return a DataFrame
 def extract_data_from_ocr(pdf_path):
     extracted_text = preprocess_pdf_and_extract_text(pdf_path)
+    
+    # Define header pattern (adjust as per your PDF's header format)
+    header_pattern = r"(Date|Transaction Date)\s+(Amount)\s+(Description)"
+    header_match = re.search(header_pattern, extracted_text, re.IGNORECASE)
 
-    # Extract columns of data from the OCR output
-    columns = extract_columns_from_ocr(extracted_text)
+    # Define data pattern (adjust as per your PDF's data format)
+    data_pattern = r"(\d{4}-\d{2}-\d{2})\s+(\$\d+\.\d+)\s+(.+)"
 
-    if columns:
-        # Convert columns to a Pandas DataFrame
-        data_df = pd.DataFrame([col.split() for col in columns], columns=columns[0].split())
+    if header_match:
+        # Extract data rows using the data pattern
+        data_matches = re.findall(data_pattern, extracted_text, re.IGNORECASE)
+        data = [match for match in data_matches]
+
+        # Create DataFrame with the extracted data
+        data_df = pd.DataFrame(data, columns=["Date", "Amount", "Description"])
         return data_df
     else:
-        return None
+        return pd.DataFrame()
 
-def extract_tables_with_camelot(pdf_path):
-    tables = camelot.read_pdf(pdf_path, flavor='stream')
-    dataframes = [table.df for table in tables]
-    return dataframes
-
-# Process all PDFs in the directory and its subdirectories
-def process_pdfs(pdf_directory, csv_file):
-    # Process PDFs with Camelot (Table Extraction)
-    pdf_files = get_pdf_files_recursive(pdf_directory)
+# Function to process PDFs and save data to CSV
+def process_pdfs():
+    pdf_files = get_pdf_files_recursive(PDF_DIR)
     for pdf_path in pdf_files:
         dataframes_camelot = extract_tables_with_camelot(pdf_path)
         if dataframes_camelot:
             # Process the dataframes_camelot to convert tables to CSV
-            # ... (rest of the code) ...
+            for i, table_df in enumerate(dataframes_camelot):
+                csv_path = os.path.join(PDF_DIR, f"table_{i + 1}.csv")
+                table_df.to_csv(PDF_DIR, index=False)
         else:
-            # Process PDFs with OCR (existing approach)
             data_df = extract_data_from_ocr(pdf_path)
             if not data_df.empty:
                 # Convert OCR data to CSV
-                # ... (rest of the code) ...
+                PDF_DIR = os.path.join(PDF_DIR, os.path.basename(pdf_path)[:-4] + ".csv")
+                data_df.to_csv(PDF_DIR, index=False)
             else:
                 print(f"No data extracted from {pdf_path}")
 
-    # Concatenate all DataFrames into a single DataFrame (if there are multiple PDFs)
-    if len(data_frames) > 0:
-        combined_df = pd.concat(data_frames, ignore_index=True)
-
-        # Save the combined DataFrame to a CSV file in the specified pdf directory
-        csv_file_path = os.path.join(pdf_directory, csv_file)
-        combined_df.to_csv(csv_file_path, index=False)
-    else:
-        print("No data extracted from PDFs in the directory and its subdirectories.")
-
-# Call the function to process all PDFs in the directory and its subdirectories
-process_pdfs(pdf_directory, csv_file)
+if __name__ == "__main__":
+    process_pdfs()
