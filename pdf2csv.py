@@ -13,33 +13,50 @@ def get_pdf_files_recursive(PDF_DIR):
     return pdf_files
 
 # Function to extract tables from the PDF using Camelot in stream mode
-def extract_tables_with_camelot(pdf_path, start_string="Details of your account activity"):
+def extract_tables_with_camelot(pdf_path, start_string="Details of your account activity", headers_to_include=None):
+    if headers_to_include is None:
+        headers_to_include = ["Date", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
+    
     # Read the first page with edge_tol=34 and other pages with edge_tol=0
     tables_page1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=34)
     tables_page2_onwards = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=0)
     
     dataframes = []
 
+    #print(f"Number of tables found on page 1: {tables_page1.n}")
+
     for table in tables_page1:
         if table.df.empty:
             continue
 
-        # Convert the table into a DataFrame
-        df = table.df
+        # Check if all headers_to_include are present in the table's DataFrame
+        if set(headers_to_include).issubset(table.df.values[0]):
+            # Find the index of the start_string to filter data below it
+            start_index = table.df[table.df.apply(lambda row: start_string in " ".join(row), axis=1)].index
 
-        # Find the index of the start_string to filter data below it
-        start_index = df[df.apply(lambda row: start_string in " ".join(row), axis=1)].index
+            if len(start_index) > 0:
+                # If start_string is found, set the DataFrame to rows starting from that index
+                df = table.df.iloc[start_index[0] + 1:]
+            else:
+                df = table.df
 
-        if len(start_index) > 0:
-            # If start_string is found, set the DataFrame to rows starting from that index
-            df = df.iloc[start_index[0] + 1:]
+            # Find the index of "Closing Balance" to remove rows after it
+            end_index = df[df.apply(lambda row: "Closing Balance" in " ".join(row), axis=1)].index
 
-        # Append the DataFrame to the list
-        dataframes.append(df)
+            if len(end_index) > 0:
+                # If "Closing Balance" is found, set the DataFrame to rows until that index
+                df = df.iloc[:end_index[0] + 1:]
+
+            # Append the DataFrame to the list
+            dataframes.append(df)
 
     for table in tables_page2_onwards:
         if table.df.empty:
             continue
+
+        # Check if the specific string is present in the table
+        #if exclude_string in table.df.values:
+            #continue  # Skip this table and proceed to the next one
 
         # Find the index of the start_string on other pages
         start_index = table.df[table.df.apply(lambda row: start_string in " ".join(row), axis=1)].index
@@ -47,6 +64,13 @@ def extract_tables_with_camelot(pdf_path, start_string="Details of your account 
         if len(start_index) > 0:
             # If start_string is found, set the DataFrame to rows starting from that index
             table.df = table.df.iloc[start_index[0] + 1:]
+
+        # Find the index of "Closing Balance" to remove rows after it
+        end_index = table.df[table.df.apply(lambda row: "Closing Balance" in " ".join(row), axis=1)].index
+
+        if len(end_index) > 0:
+            # If "Closing Balance" is found, set the DataFrame to rows until that index
+            table.df = table.df.iloc[:end_index[0] + 1:]
 
         # Append the DataFrame to the list
         dataframes.append(table.df)
