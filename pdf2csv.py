@@ -18,7 +18,7 @@ def extract_tables_with_camelot(pdf_path, start_string="Details of your account 
         headers_to_include = ["Date", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
     
     # Read the first page with edge_tol=34 and other pages with edge_tol=0
-    tables_page1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1')
+    tables_page1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=34)
     tables_page2_onwards = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end')
     
     dataframes = []
@@ -47,53 +47,21 @@ def extract_tables_with_camelot(pdf_path, start_string="Details of your account 
             df = df.drop(index=df.index[end_index[0] + 1:])
 
         # Drop the first column (index 0) from the DataFrame
-#        df = df.drop(df.columns[0], axis=1)
+        df = df.drop(df.columns[0], axis=1)
 
         # Append the DataFrame to the list
         dataframes.append(df)
 
-        # Print the content of the table
+        # Print the content of the table with table coordinates
         print(f"Table {table_num} (Page 1) - Coordinates: ({table._bbox[0]}, {table._bbox[1]}, {table._bbox[2]}, {table._bbox[3]})")
         print(df)
         print("\n")
-
-        # # Check if all headers_to_include are present in the table's DataFrame
-        # if set(headers_to_include).issubset(table.df.values[0]):
-        #     # Find the index of the start_string to filter data below it
-        #     start_index = table.df[table.df.apply(lambda row: start_string in " ".join(row), axis=1)].index
-
-        #     if len(start_index) > 0:
-        #         # If start_string is found, set the DataFrame to rows starting from that index
-        #         df = table.df.iloc[start_index[0] + 1:]
-        #     else:
-        #         df = table.df
-
-        #     # Find the index of "Closing Balance" to remove rows after it
-        #     end_index = df[df.apply(lambda row: "Closing Balance" in " ".join(row), axis=1)].index
-
-        #     if len(end_index) > 0:
-        #         # If "Closing Balance" is found, set the DataFrame to rows until that index
-        #         df = df.iloc[:end_index[0] + 1:]
-        #         # Drop the rows after "Closing Balance"
-        #         df = df.drop(index=df.index[end_index[0] + 1:])
-
-        #     # Append the DataFrame to the list
-        #     dataframes.append(df)
-
-        #     # Print the content of the table
-        #     print(f"Table {table_num}:")
-        #     print(df)
-        #     print("\n")
 
         table_num += 1
 
     for table in tables_page2_onwards:
         if table.df.empty:
             continue
-
-        # Check if the specific string is present in the table
-        #if exclude_string in table.df.values:
-            #continue  # Skip this table and proceed to the next one
 
         # Find the index of the start_string on other pages
         start_index = table.df[table.df.apply(lambda row: start_string in " ".join(row), axis=1)].index
@@ -114,16 +82,16 @@ def extract_tables_with_camelot(pdf_path, start_string="Details of your account 
         # Append the DataFrame to the list
         dataframes.append(table.df)
 
-        # Print the content of the table
-        print(f"Table {table_num}:")
+        # Print the content of the table with table coordinates
+        print(f"Table {table_num} (Page {table.page}) - Coordinates: ({table._bbox[0]}, {table._bbox[1]}, {table._bbox[2]}, {table._bbox[3]})")
         print(table.df)
         print("\n")
 
         table_num += 1
 
-        # Print the number of tables found on each page
-        print(f"Number of tables found on Page 1: {len(tables_page1)}")
-        print(f"Number of tables found on Page 2 onwards: {len(tables_page2_onwards)}")
+    # Print the number of tables found on each page
+    print(f"Number of tables found on Page 1: {len(tables_page1)}")
+    print(f"Number of tables found on Page 2 onwards: {len(tables_page2_onwards)}")
 
     return dataframes
 
