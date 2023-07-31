@@ -1,6 +1,8 @@
 import os
 import pandas as pd
+import numpy as np #Import numpy to handle NaN values
 import camelot
+import matplotlib.pyplot as plt
 from mysecrets import PDF_DIR, CSV_FILE
 
 # Function to get a list of PDF files in a directory and its subdirectories
@@ -12,15 +14,17 @@ def get_pdf_files_recursive(PDF_DIR):
                 pdf_files.append(os.path.join(root, file))
     return pdf_files
 
-# Function to extract tables from the PDF using Camelot in stream mode
-def extract_tables_with_camelot(pdf_path, start_string="Details of your account activity", headers_to_include=None):
-    if headers_to_include is None:
-        headers_to_include = ["Date", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
+# Global variable to define headers to include
+headers_to_include = ["Date", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
 
-    # Read the first page with edge_tol=34 and other pages with edge_tol=0
+# Function to extract tables from the PDF using Camelot in stream mode
+def extract_tables_with_camelot(pdf_path, start_string="Details of your account activity"):
+    
+    # Read the first page separately, all others grouped in one loop afterwards
+#    columns=['42,88,317,423,553']
     tables_page1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=34)
     tables_page2_onwards = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end')
-
+    
     dataframes = []
     table_num = 1
 
@@ -63,11 +67,14 @@ def extract_tables_with_camelot(pdf_path, start_string="Details of your account 
         dataframes.append(df)
 
         # Print the content of the table with table coordinates
-        print(f"Table {table_num} (Page 1) - Coordinates: ({table._bbox[0]}, {table._bbox[1]}, {table._bbox[2]}, {table._bbox[3]})")
-        print(df)
-        print("\n")
+#        print(f"Table {table_num} (Page 1) - Coordinates: ({table._bbox[0]}, {table._bbox[1]}, {table._bbox[2]}, {table._bbox[3]})")
+#        print(df)
+#        print("\n")
 
         table_num += 1
+    
+#    camelot.plot(tables_page1[0], kind='text')
+#plt.show(block=True)
 
     for table in tables_page2_onwards:
         if table.df.empty:
@@ -102,19 +109,13 @@ def extract_tables_with_camelot(pdf_path, start_string="Details of your account 
         # Append the DataFrame to the list
         dataframes.append(table.df)
 
-        # Print the content of the table with table coordinates
-        print(f"Table {table_num} (Page {table.page}) - Coordinates: ({table._bbox[0]}, {table._bbox[1]}, {table._bbox[2]}, {table._bbox[3]})")
-        print(table.df)
-        print("\n")
-
         table_num += 1
 
     # Print the number of tables found on each page
-    print(f"Number of tables found on Page 1: {len(tables_page1)}")
-    print(f"Number of tables found on Page 2 onwards: {len(tables_page2_onwards)}")
+#    print(f"Number of tables found on Page 1: {len(tables_page1)}")
+#    print(f"Number of tables found on Page 2 onwards: {len(tables_page2_onwards)}")
 
     return dataframes
-
 
 # Function to process PDFs and save data to CSV
 def process_pdfs(start_string=None):
@@ -132,12 +133,13 @@ def process_pdfs(start_string=None):
     if all_dataframes:
         # Concatenate all dataframes into a single DataFrame
         combined_data = pd.concat(all_dataframes, ignore_index=True)
+        
+        # # Set the DataFrame columns using the headers from the first page
+        # combined_data.columns = headers_to_include
+        combined_data.columns = headers_to_include + ["Extra Date"]
 
-        # Set the DataFrame columns using the headers from the first page
-        combined_data.columns = combined_data.iloc[0]
-
-        # Remove the first row, which contains the headers (already used for columns)
-        combined_data = combined_data.iloc[1:]
+        # # Filter the DataFrame to keep only the required columns
+        # combined_data = combined_data.filter(headers_to_include)
 
         csv_path = os.path.join(PDF_DIR, f"{CSV_FILE}.csv")
         combined_data.to_csv(csv_path, index=False)
@@ -145,5 +147,5 @@ def process_pdfs(start_string=None):
     else:
         print("No data extracted from any PDFs.")
 
-# Replace 'YOUR_PDF_DIRECTORY' and 'output_csv_file' with your desired values.
+# Replace 'YOUR_PDF_DIRECTORY' and 'output_csv_file' with your desired values in the mysecrets.py file.
 process_pdfs()
