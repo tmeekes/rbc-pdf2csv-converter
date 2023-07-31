@@ -16,11 +16,11 @@ def get_pdf_files_recursive(PDF_DIR):
 def extract_tables_with_camelot(pdf_path, start_string="Details of your account activity", headers_to_include=None):
     if headers_to_include is None:
         headers_to_include = ["Date", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
-    
+
     # Read the first page with edge_tol=34 and other pages with edge_tol=0
     tables_page1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=34)
     tables_page2_onwards = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end')
-    
+
     dataframes = []
     table_num = 1
 
@@ -37,12 +37,22 @@ def extract_tables_with_camelot(pdf_path, start_string="Details of your account 
         else:
             df = table.df
 
+        # Find the index of the header row
+        header_index = df[df.apply(lambda row: all(header in " ".join(row) for header in headers_to_include), axis=1)].index
+
+        if len(header_index) > 0:
+            # If the header row is found, set the DataFrame to rows starting from that index
+            df = df.iloc[header_index[0] + 1:]
+        else:
+            # If the header row is not found, skip this table
+            continue
+
         # Find the index of "Closing Balance" to remove rows after it
         end_index = df[df.apply(lambda row: "Closing Balance" in " ".join(row), axis=1)].index
 
         if len(end_index) > 0:
             # If "Closing Balance" is found, set the DataFrame to rows until that index
-            df = df.iloc[:end_index[0] + 1:]
+            df = df.iloc[:end_index[0] + 1]
             # Drop the rows after "Closing Balance"
             df = df.drop(index=df.index[end_index[0] + 1:])
 
@@ -70,12 +80,22 @@ def extract_tables_with_camelot(pdf_path, start_string="Details of your account 
             # If start_string is found, set the DataFrame to rows starting from that index
             table.df = table.df.iloc[start_index[0] + 1:]
 
+        # Find the index of the header row
+        header_index = table.df[table.df.apply(lambda row: all(header in " ".join(row) for header in headers_to_include), axis=1)].index
+
+        if len(header_index) > 0:
+            # If the header row is found, set the DataFrame to rows starting from that index
+            table.df = table.df.iloc[header_index[0] + 1:]
+        else:
+            # If the header row is not found, skip this table
+            continue
+
         # Find the index of "Closing Balance" to remove rows after it
         end_index = table.df[table.df.apply(lambda row: "Closing Balance" in " ".join(row), axis=1)].index
 
         if len(end_index) > 0:
             # If "Closing Balance" is found, set the DataFrame to rows until that index
-            table.df = table.df.iloc[:end_index[0] + 1:]
+            table.df = table.df.iloc[:end_index[0] + 1]
             # Drop the rows after "Closing Balance"
             table.df = table.df.drop(index=table.df.index[end_index[0] + 1:])
 
@@ -94,6 +114,7 @@ def extract_tables_with_camelot(pdf_path, start_string="Details of your account 
     print(f"Number of tables found on Page 2 onwards: {len(tables_page2_onwards)}")
 
     return dataframes
+
 
 # Function to process PDFs and save data to CSV
 def process_pdfs(start_string=None):
