@@ -26,20 +26,12 @@ def extract_tables_with_camelot(pdf_path, start_string="Details of your account 
     tables_page2_onwards = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end')
     
     dataframes = []
-    table_num = 1
 
     for table in tables_page1:
         if table.df.empty:
             continue
 
-        # Find the index of the start_string to filter data below it
-        start_index = table.df[table.df.apply(lambda row: start_string in " ".join(row), axis=1)].index
-
-        if len(start_index) > 0:
-            # If start_string is found, set the DataFrame to rows starting from that index
-            df = table.df.iloc[start_index[0] + 1:]
-        else:
-            df = table.df
+        df = table.df
 
         # Find the index of the header row
         header_index = df[df.apply(lambda row: all(header in " ".join(row) for header in headers_to_include), axis=1)].index
@@ -65,13 +57,6 @@ def extract_tables_with_camelot(pdf_path, start_string="Details of your account 
 
         # Append the DataFrame to the list
         dataframes.append(df)
-
-        # Print the content of the table with table coordinates
-#        print(f"Table {table_num} (Page 1) - Coordinates: ({table._bbox[0]}, {table._bbox[1]}, {table._bbox[2]}, {table._bbox[3]})")
-#        print(df)
-#        print("\n")
-
-        table_num += 1
     
 #    camelot.plot(tables_page1[0], kind='text')
 #plt.show(block=True)
@@ -80,15 +65,16 @@ def extract_tables_with_camelot(pdf_path, start_string="Details of your account 
         if table.df.empty:
             continue
 
-        # Find the index of the start_string on other pages
-        start_index = table.df[table.df.apply(lambda row: start_string in " ".join(row), axis=1)].index
+        # # Find the index of the start_string on other pages
+        # start_index = table.df[table.df.apply(lambda row: start_string in " ".join(row), axis=1)].index
 
-        if len(start_index) > 0:
-            # If start_string is found, set the DataFrame to rows starting from that index
-            table.df = table.df.iloc[start_index[0] + 1:]
+        # if len(start_index) > 0:
+        #     # If start_string is found, set the DataFrame to rows starting from that index
+        #     table.df = table.df.iloc[start_index[0] + 1:]
 
         # Find the index of the header row
         header_index = table.df[table.df.apply(lambda row: all(header in " ".join(row) for header in headers_to_include), axis=1)].index
+        print(header_index)
 
         if len(header_index) > 0:
             # If the header row is found, set the DataFrame to rows starting from that index
@@ -109,12 +95,6 @@ def extract_tables_with_camelot(pdf_path, start_string="Details of your account 
         # Append the DataFrame to the list
         dataframes.append(table.df)
 
-        table_num += 1
-
-    # Print the number of tables found on each page
-#    print(f"Number of tables found on Page 1: {len(tables_page1)}")
-#    print(f"Number of tables found on Page 2 onwards: {len(tables_page2_onwards)}")
-
     return dataframes
 
 # Function to process PDFs and save data to CSV
@@ -128,7 +108,8 @@ def process_pdfs(start_string=None):
             print(f"Using Camelot in stream mode to extract data from {pdf_path}")
             all_dataframes.extend(dataframes_camelot)
         else:
-            print(f"No data extracted from {pdf_path}")
+            #print(f"No data extracted from {pdf_path}")
+            continue
 
     if all_dataframes:
         # Concatenate all dataframes into a single DataFrame
