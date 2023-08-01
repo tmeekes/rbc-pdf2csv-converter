@@ -1,5 +1,6 @@
-# ---> Python
+# ---> Project Files
 pdf2csv/
+mysecrets.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
