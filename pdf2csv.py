@@ -110,18 +110,40 @@ def process_pdfs():
     for pdf_path in pdf_files:
         dataframes_camelot = extract_tables_with_camelot(pdf_path)
         if dataframes_camelot:
-            #print(f"Using Camelot in stream mode to extract data from {pdf_path}")
+            print(f"Processed {pdf_path}")
             all_dataframes.extend(dataframes_camelot)
         else:
+            print(f"Didn't process {pdf_path}")
             continue
 
     if all_dataframes:
         # Concatenate all dataframes into a single DataFrame
         combined_data = pd.concat(all_dataframes, ignore_index=True)
+        #pd.set_option('display.max_rows', None)
+
+        # Drop the last column of NaN values
+        if pd.isna(combined_data.iloc[0, -1]):
+            combined_data = combined_data.drop(combined_data.columns[-1], axis=1)
+            #combined_data = combined_data.drop(combined_data.index[-1])
+
+        # Replace empty strings with NaN
+        combined_data = combined_data.replace('', np.nan)
+        # Drop rows that are completely empty in all columns
+        combined_data = combined_data.dropna(how='all')
         
+        # Remove rows containing headers
+        headers_to_exclude = ["Date", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
+        for header in headers_to_exclude:
+            combined_data = combined_data[~combined_data.apply(lambda row: header in " ".join(row.astype(str)), axis=1)]
+
         # Set the DataFrame columns using the headers from the first page
-        #combined_data.columns = headers_to_include
+        combined_data.columns = headers_to_include
         #combined_data.columns = headers_to_include + ["Extra Date"] # Use when the data is getting shifted from multiple PDFs
+
+        # Forward-fill missing dates in the "Date" column
+        combined_data['Date'].fillna(method='ffill', inplace=True)
+
+        #print(combined_data)
 
         csv_path = os.path.join(PDF_DIR, f"{CSV_FILE}.csv")
         combined_data.to_csv(csv_path, index=False)
