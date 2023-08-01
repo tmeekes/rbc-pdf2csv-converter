@@ -52,19 +52,14 @@ def extract_tables_with_camelot(pdf_path):
         # Find the index of "Opening Balance" to remove it
         opening_balance_index = table.df[table.df.apply(lambda row: "Opening Balance" in " ".join(row), axis=1)].index
         if len(opening_balance_index) > 0:
-            # If "Opening Balance" is found, set the DataFrame to rows until that index. *** For some reason, it's using a row well below "Closing Balance"... manually adjusted, but need to revisit to clean up
+            # If "Opening Balance" is found, set the DataFrame to rows until that index.
             #table.df = table.df.iloc[opening_balance_index[0]]
             table.df = table.df.drop(opening_balance_index[0])
 
-        # Find the index of "Closing Balance" to remove rows after it
-        end_index = table.df[table.df.apply(lambda row: "Closing Balance" in " ".join(row), axis=1)].index
-
-        if len(end_index) > 0:
-            # If "Closing Balance" is found, set the DataFrame to rows until that index
-            table.df = table.df.iloc[:end_index[0] + 1]
-            print(f"Closing Balance was found on row {end_index[0]}.")
-            # Drop the rows after "Closing Balance"
-            table.df = table.df.drop(index=table.df.index[end_index[0] + 1:])
+        # Find the index of "Closing Balance" to remove rows from it and after
+        end_index = table.df.loc[table.df.apply(lambda row: "Closing Balance" in " ".join(row), axis=1)].index
+        if not end_index.empty:
+            table.df = table.df.loc[:end_index.values[0] - 1]
 
         # Append the DataFrame to the list
         dataframes.append(table.df)
@@ -93,12 +88,9 @@ def extract_tables_with_camelot(pdf_path):
             table.df = table.df.drop(opening_balance_index[0])
 
         # Find the index of "Closing Balance" to remove rows from it and after
-        end_index = table.df[table.df.apply(lambda row: "Closing Balance" in " ".join(row), axis=1)].index
-
-        if len(end_index) > 0:
-            # If "Closing Balance" is found, set the DataFrame to rows until that index. *** For some reason, it's using a row well below "Closing Balance"... manually adjusted, but need to revisit to clean up
-            #table.df = table.df.iloc[:end_index[0] - 4]
-            table.df = table.df.iloc[:end_index[0] - 2]
+        end_index = table.df.loc[table.df.apply(lambda row: "Closing Balance" in " ".join(row), axis=1)].index
+        if not end_index.empty:
+            table.df = table.df.loc[:end_index.values[0] - 1]
 
         # Drop the last column (index 5) from the DataFrame
         #table.df = table.df.drop(table.df.columns[5], axis=1)
