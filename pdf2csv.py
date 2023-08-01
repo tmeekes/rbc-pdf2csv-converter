@@ -30,19 +30,31 @@ def extract_tables_with_camelot(pdf_path):
         if table.df.empty:
             continue
 
-        # Shift all columns left replace NaNs with blank strings (Removes the vertical left column string)
-        table.df = table.df.shift(periods=-1, axis=1)
-        table.df.fillna('', inplace=True)
-
         # Find the index of the header row
         header_index = table.df[table.df.apply(lambda row: all(header in " ".join(row) for header in headers_to_include), axis=1)].index
 
         if len(header_index) > 0:
             # If the header row is found, set the DataFrame to rows starting from that index
-            table.df = table.df.iloc[header_index[0] + 1:]
+            table.df = table.df.iloc[header_index[0]:]
         else:
             # If the header row is not found, skip this table
             continue
+
+        # If Date isn't the first column, shift all columns left replace NaNs with blank strings (Removes the vertical left column string)
+        if ("Date" not in table.df.iloc[:, 0].values) and ("Date" in table.df.iloc[:, 1].values):
+            table.df = table.df.shift(periods=-1, axis=1)
+
+            table.df.fillna('', inplace=True)
+
+            # Drop the last column (index 5) from the DataFrame
+            table.df = table.df.drop(table.df.columns[5], axis=1)
+
+        # Find the index of "Opening Balance" to remove it
+        opening_balance_index = table.df[table.df.apply(lambda row: "Opening Balance" in " ".join(row), axis=1)].index
+        if len(opening_balance_index) > 0:
+            # If "Opening Balance" is found, set the DataFrame to rows until that index. *** For some reason, it's using a row well below "Closing Balance"... manually adjusted, but need to revisit to clean up
+            #table.df = table.df.iloc[opening_balance_index[0]]
+            table.df = table.df.drop(opening_balance_index[0])
 
         # Find the index of "Closing Balance" to remove rows after it
         end_index = table.df[table.df.apply(lambda row: "Closing Balance" in " ".join(row), axis=1)].index
@@ -50,24 +62,17 @@ def extract_tables_with_camelot(pdf_path):
         if len(end_index) > 0:
             # If "Closing Balance" is found, set the DataFrame to rows until that index
             table.df = table.df.iloc[:end_index[0] + 1]
+            print(f"Closing Balance was found on row {end_index[0]}.")
             # Drop the rows after "Closing Balance"
             table.df = table.df.drop(index=table.df.index[end_index[0] + 1:])
-
-        # Drop the last column (index 5) from the DataFrame
-        table.df = table.df.drop(table.df.columns[5], axis=1)
 
         # Append the DataFrame to the list
         dataframes.append(table.df)
 
-        print(table.df)
-        print(f"Processed page 1")
-    
-    # camelot.plot(tables_page1[0], kind='text')
-    # plt.show(block=True)
+        #print(f"Processed page 1")
 
     for table in tables_page2_onwards:
         if table.df.empty:
-            print(f"Page 2+ is empty")
             continue
 
         # Find the index of the header row
@@ -80,29 +85,28 @@ def extract_tables_with_camelot(pdf_path):
             # If the header row is not found, skip this table
             continue
 
+        # Find the index of "Opening Balance" to remove it
+        opening_balance_index = table.df[table.df.apply(lambda row: "Opening Balance" in " ".join(row), axis=1)].index
+        if len(opening_balance_index) > 0:
+            # If "Opening Balance" is found, set the DataFrame to rows until that index. *** For some reason, it's using a row well below "Closing Balance"... manually adjusted, but need to revisit to clean up
+            #table.df = table.df.iloc[opening_balance_index[0]]
+            table.df = table.df.drop(opening_balance_index[0])
+
         # Find the index of "Closing Balance" to remove rows from it and after
         end_index = table.df[table.df.apply(lambda row: "Closing Balance" in " ".join(row), axis=1)].index
 
-        # Print whether "Closing Balance" was found on this page
-        print(f"'Closing Balance' found on page {table.page}: {len(end_index) > 0}")
-        print(end_index[0])
-
         if len(end_index) > 0:
-            # If "Closing Balance" is found, set the DataFrame to rows until that index
-            table.df = table.df.iloc[:end_index[0]]
-            # Drop the rows from "Closing Balance"
-            table.df = table.df.drop(index=table.df.index[end_index[0]:])
-
-        print(end_index[0])
+            # If "Closing Balance" is found, set the DataFrame to rows until that index. *** For some reason, it's using a row well below "Closing Balance"... manually adjusted, but need to revisit to clean up
+            #table.df = table.df.iloc[:end_index[0] - 4]
+            table.df = table.df.iloc[:end_index[0] - 2]
 
         # Drop the last column (index 5) from the DataFrame
-        table.df = table.df.drop(table.df.columns[5], axis=1)
-        #print(table.df)
+        #table.df = table.df.drop(table.df.columns[5], axis=1)
 
         # Append the DataFrame to the list
         dataframes.append(table.df)
 
-        print(f"Processed page 2+")
+        #print(f"Processed page 2+")
 
     return dataframes
 
@@ -114,10 +118,9 @@ def process_pdfs():
     for pdf_path in pdf_files:
         dataframes_camelot = extract_tables_with_camelot(pdf_path)
         if dataframes_camelot:
-            print(f"Using Camelot in stream mode to extract data from {pdf_path}")
+            #print(f"Using Camelot in stream mode to extract data from {pdf_path}")
             all_dataframes.extend(dataframes_camelot)
         else:
-            #print(f"No data extracted from {pdf_path}")
             continue
 
     if all_dataframes:
@@ -125,20 +128,8 @@ def process_pdfs():
         combined_data = pd.concat(all_dataframes, ignore_index=True)
         
         # Set the DataFrame columns using the headers from the first page
-        combined_data.columns = headers_to_include
+        #combined_data.columns = headers_to_include
         #combined_data.columns = headers_to_include + ["Extra Date"] # Use when the data is getting shifted from multiple PDFs
-
-        # # Filter the DataFrame to keep only the required columns
-        # combined_data = combined_data.filter(headers_to_include)
-
-        # # Print all dataframes in the list
-        # for i, df in enumerate(all_dataframes, 1):
-        #     print(f"\nDataframe {i}:")
-        #     print(df)
-        
-        # # Print the combined_data DataFrame
-        # print("\nCombined Data:")
-        # print(combined_data)
 
         csv_path = os.path.join(PDF_DIR, f"{CSV_FILE}.csv")
         combined_data.to_csv(csv_path, index=False)
