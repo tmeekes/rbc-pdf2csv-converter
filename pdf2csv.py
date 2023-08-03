@@ -21,7 +21,9 @@ def get_pdf_files_recursive(PDF_DIR):
 headers_to_include = ["Date", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
 
 # Turn on for logging during testing!
-print_log = 'on'
+print_all = 'off'
+print_extract = 'off'
+print_page = 'on'
 print_plot = 'off'
 
 def pypdf2_extract_text_from_pdf(pdf_path, page_number):
@@ -39,7 +41,7 @@ def extract_tables_with_camelot(pdf_path):
     try:
         # Use PyPDF2 to extract the text from the first page
         pypdf2_text_extract = pypdf2_extract_text_from_pdf(pdf_path, page_number=1)
-        if print_log == 'on':
+        if print_all == 'on' or print_extract == 'on':
             print("")
             print("PyPDF2 Extract:")
             print("------------------PyPDF2-----------------")
@@ -58,7 +60,7 @@ def extract_tables_with_camelot(pdf_path):
     if not match:
         return None
 
-    if print_log == 'on':
+    if print_all == 'on':
         print("Match: " + str(match))
 
     # Find the string right below the matched pattern
@@ -68,13 +70,13 @@ def extract_tables_with_camelot(pdf_path):
         year = "2000"
     else:
         year = year_match.group(1)  # Extract the captured group containing the year
-    if print_log == 'on':
+    if print_all == 'on':
         print("Year: " + year)
 
     # Find the account number after "Your account number:"
     account_number = re.search(r'Your account number:\s*(\d{5}-\d{7})', pypdf2_text_extract)
     account_number = account_number.group(1) if account_number else None
-    if print_log == 'on':
+    if print_all == 'on':
         print("Account number: " + account_number)
     
     # Read the first page separately, all others grouped in one loop afterwards
@@ -83,17 +85,18 @@ def extract_tables_with_camelot(pdf_path):
     # tables_page1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=46, table_regions=['40,432,602,72'], columns=['43,90,318,423,554'], split_text=True, flag_size=True, column_tol=2, row_tol=2)
     tables_page2_onwards = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=22, suppress_stdout=True)
 
-    if print_log == 'on': # Loop through each table and print its content
-            print("")
-            print("Parsing Report")
-            print (tables_page1[0].parsing_report)
-            print("")
-            print("Camelot extracted table from page 1 content:")
-            print("-----------------Camelot-----------------")
-            for table in tables_page1:
-                print(table.df)
-            print("---------------Camelot End---------------")
-            print("")
+    if print_all == 'on': # Print the partsin report
+        print("")
+        print("Parsing Report")
+        print (tables_page1[0].parsing_report)
+        print("")
+    if print_all == 'on' or print_extract == 'on': # Loop through each table and print its content
+        print("Camelot extracted table from page 1 content:")
+        print("-----------------Camelot-----------------")
+        for table in tables_page1:
+            print(table.df)
+        print("---------------Camelot End---------------")
+        print("")
     if print_plot == 'on': # Show PDF table plot
         camelot.plot(tables_page1[0], kind='text')
         camelot.plot(tables_page1[0], kind='grid')
@@ -108,7 +111,7 @@ def extract_tables_with_camelot(pdf_path):
 
         # Find the index of the header row
         header_index = table.df[table.df.apply(lambda row: all(header in " ".join(row) for header in headers_to_include), axis=1)].index
-        if print_log == 'on':
+        if print_all == 'on':
             print("Header index: " + str(header_index))
 
         if len(header_index) > 0:
@@ -129,7 +132,7 @@ def extract_tables_with_camelot(pdf_path):
                 col_index = int(is_match[is_match].index[0]) # Get the column index where the match is True
                 table.df[col_index] = table.df[col_index].str.replace(r'.*\n', '', regex=True)
                 
-                if print_log == 'on':
+                if print_all == 'on':
                     print("---------")
                     print("Fix for concatenated Date & Description columns:")
                     print(table.df)
@@ -145,7 +148,7 @@ def extract_tables_with_camelot(pdf_path):
         # If Date isn't the first column, shift all columns left, replace NaNs with blank strings (Removes the vertical left column string)
         if ("Date" not in table.df.iloc[:, 0].values) and ("Date" in table.df.iloc[:, 1].values):
             table.df = table.df.shift(periods=-1, axis=1)
-            if print_log == 'on':
+            if print_all == 'on':
                 print("Table after Date shift:")
                 print(table.df)
 
@@ -153,7 +156,7 @@ def extract_tables_with_camelot(pdf_path):
 
             # Drop the last column (index 5) from the DataFrame
             table.df = table.df.drop(table.df.columns[5], axis=1)
-            if print_log == 'on':
+            if print_all == 'on':
                 print("Table after NaN fill and last column (5) drop:")
                 print(table.df)
 
@@ -189,9 +192,9 @@ def extract_tables_with_camelot(pdf_path):
 
         dataframes.append(table.df) # Append the DataFrame to the list
         
-        if print_log == 'on':
+        if print_all == 'on' or print_page == 'on': # Loop through each table and print its content
             print("")
-            print("Page 1 extract:")
+            print("Page 1 processed data:")
             print(table.df)
 
     for table in tables_page2_onwards:
@@ -236,9 +239,9 @@ def extract_tables_with_camelot(pdf_path):
 
         dataframes.append(table.df) # Append the DataFrame to the list
 
-        if print_log == 'on':
+        if print_all == 'on' or print_page == 'on': # Loop through each table and print its content
             print("")
-            print("Page 2 extract:")
+            print("Page 2+ processed data:")
             print(table.df)
 
     return dataframes
