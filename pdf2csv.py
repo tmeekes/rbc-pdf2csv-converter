@@ -121,21 +121,21 @@ def extract_tables_with_camelot(pdf_path):
             try: # Fix for PDF extracts that concat Date & Description columns
                 string_to_find = "Date\nDescription" # Sets the name to find (based on the desired column name) from the contents
                 is_match = table.df.iloc[0].isin([string_to_find]) # Check if the first row contains the specified string
-                col_index = int(is_match[is_match].index[0]) # Get the column index where the match is True
+                if any(is_match):
+                    col_index = int(is_match[is_match].index[0]) # Get the column index where the match is True
+                    table.df.insert(col_index, 'D', table.df[col_index]) # Duplicate the column to the left by inserting it at the same index
+                    table.df.loc[~table.df['D'].str.contains(r'\n'), 'D'] = "" # In the date column, replace any values that don't have "\n" in them with " "
+                    table.df['D'] = table.df['D'].str.replace(r'\n.*', '', regex=True) # In the date column, trim "\n"
                 
-                table.df.insert(col_index, 'D', table.df[col_index]) # Duplicate the column to the left by inserting it at the same index
-                table.df.loc[~table.df['D'].str.contains(r'\n'), 'D'] = "" # In the date column, replace any values that don't have "\n" in them with " "
-                table.df['D'] = table.df['D'].str.replace(r'\n.*', '', regex=True) # In the date column, trim "\n"
+                    # In the description column, trim anything from the "\" of the first "\n"
+                    is_match = table.df.iloc[0].isin([string_to_find]) # Check if the first row contains the specified string
+                    col_index = int(is_match[is_match].index[0]) # Get the column index where the match is True
+                    table.df[col_index] = table.df[col_index].str.replace(r'.*\n', '', regex=True)
                 
-                # In the description column, trim anything from the "\" of the first "\n"
-                is_match = table.df.iloc[0].isin([string_to_find]) # Check if the first row contains the specified string
-                col_index = int(is_match[is_match].index[0]) # Get the column index where the match is True
-                table.df[col_index] = table.df[col_index].str.replace(r'.*\n', '', regex=True)
-                
-                if print_all == 'on':
-                    print("---------")
-                    print("Fix for concatenated Date & Description columns:")
-                    print(table.df)
+                    if print_all == 'on':
+                        print("---------")
+                        print("Fix for concatenated Date & Description columns:")
+                        print(table.df)
 
             except ValueError:
                 # Handle the case where the column name is not found
@@ -145,7 +145,7 @@ def extract_tables_with_camelot(pdf_path):
             # If the header row is not found, skip this table
             continue
 
-        # If Date isn't the first column, shift all columns left, replace NaNs with blank strings (Removes the vertical left column string)
+        # If Date isn't the first column, shift all columns left, replace NaNs with blank strings (Removes the vertical left column string for page 1)
         if ("Date" not in table.df.iloc[:, 0].values) and ("Date" in table.df.iloc[:, 1].values):
             table.df = table.df.shift(periods=-1, axis=1)
             if print_all == 'on':
@@ -175,18 +175,14 @@ def extract_tables_with_camelot(pdf_path):
 
         # Adds the account number to the table
         table.df.insert(1, "Account Number", "") # Insert new column for Account Numbers
-        table.df["Account Number"] = [f"{account_number}" if description.strip() else description for description in table.df[1]] # Append the account number to the "Account Number" column for non-empty rows
+        table.df["Account Number"] = [f"{account_number}" if description.strip() else description for description in table.df['D']] # Append the account number to the "Account Number" column for non-empty description rows
 
-        # Finds & fixes rows that have been concatenated with multiple lines
+        # Fixes multiline concatenation - loops through the DataFrame starting from the second row
         for i in range(1, len(table.df)):
-            # Check if the description is not empty for the current row
-            if table.df.iloc[i, 2].strip():
-                # Check if both withdrawals and deposits are empty for the current row
-                if table.df.iloc[i, 3] == '' and table.df.iloc[i, 4] == '':
-                    # Concatenate the description with the next row's description
-                    table.df.iloc[i+1, 2] = table.df.iloc[i, 2] + ' | ' + table.df.iloc[i+1, 2]
-                    # Clear out the current row's description
-                    table.df.iloc[i, 2] = ''
+            if table.df.iloc[i, 2].strip(): # Check if the description is not empty for the current row
+                if table.df.iloc[i, 3] == '' and table.df.iloc[i, 4] == '': # Check if both withdrawals and deposits are empty for the current row
+                    table.df.iloc[i+1, 2] = table.df.iloc[i, 2] + ' | ' + table.df.iloc[i+1, 2] # Concatenate the description with the next row's description
+                    table.df.iloc[i, 2] = '' # Clear out the current row's description
 
         table.df = table.df[table.df.iloc[:, 2].str.strip() != ''] # Drop rows where the description is empty
 
@@ -194,8 +190,9 @@ def extract_tables_with_camelot(pdf_path):
         
         if print_all == 'on' or print_page == 'on': # Loop through each table and print its content
             print("")
-            print("Page 1 processed data:")
+            print("---------Page 1 processed data:----------")
             print(table.df)
+            print("-------Page 1 processed data End:--------")
 
     for table in tables_page2_onwards:
         if table.df.empty:
@@ -206,6 +203,30 @@ def extract_tables_with_camelot(pdf_path):
 
         if len(header_index) > 0:
             table.df = table.df.iloc[header_index[0] + 1:] # If the header row is found, set the DataFrame to rows starting from the row after that index
+
+            try: # Fix for PDF extracts that concat Date & Description columns
+                string_to_find = "Date\nDescription" # Sets the name to find (based on the desired column name) from the contents
+                is_match = table.df.iloc[0].isin([string_to_find]) # Check if the first row contains the specified string
+                if any(is_match):
+                    col_index = int(is_match[is_match].index[0]) # Get the column index where the match is True
+                    table.df.insert(col_index, 'D', table.df[col_index]) # Duplicate the column to the left by inserting it at the same index
+                    table.df.loc[~table.df['D'].str.contains(r'\n'), 'D'] = "" # In the date column, replace any values that don't have "\n" in them with " "
+                    table.df['D'] = table.df['D'].str.replace(r'\n.*', '', regex=True) # In the date column, trim "\n"
+                
+                    # In the description column, trim anything from the "\" of the first "\n"
+                    is_match = table.df.iloc[0].isin([string_to_find]) # Check if the first row contains the specified string
+                    col_index = int(is_match[is_match].index[0]) # Get the column index where the match is True
+                    table.df[col_index] = table.df[col_index].str.replace(r'.*\n', '', regex=True)
+                
+                    if print_all == 'on':
+                        print("---------")
+                        print("Fix for concatenated Date & Description columns:")
+                        print(table.df)
+
+            except ValueError:
+                # Handle the case where the column name is not found
+                print(r"Column 'Date\nDescription' not found")
+
         else:
             continue # If the header row is not found, skip this table
 
@@ -221,14 +242,18 @@ def extract_tables_with_camelot(pdf_path):
         if not end_index.empty:
             table.df = table.df.loc[:end_index.values[0] - 1]
 
+        # Standardize page 2 column headers to match page 1's headers
+        table.df.rename(columns={1: 'D',2: 1,3: 2,4: 3,5: 4}, inplace=True)
+
         #Append the year to the "Date" column for non-empty rows
         table.df[0] = [f"{date}, {year}" if date.strip() else date for date in table.df[0]]
 
         # Adds the account number to the table
         table.df.insert(1, "Account Number", "") # Insert new column for Account Numbers
-        table.df["Account Number"] = [f"{account_number}" if description.strip() else description for description in table.df[1]] # Append the account number to the "Account Number" column for non-empty rows
+        print(table.df)
+        table.df["Account Number"] = [f"{account_number}" if description.strip() else description for description in table.df['D']] # Append the account number to the "Account Number" column for non-empty description rows
 
-        # Loop through the DataFrame starting from the second row
+        # Fixes multiline concatenation - loops through the DataFrame starting from the second row
         for i in range(1, len(table.df)):
             if table.df.iloc[i, 2].strip(): # Check if the description is not empty for the current row
                 if table.df.iloc[i, 3] == '' and table.df.iloc[i, 4] == '': # Check if both withdrawals and deposits are empty for the current row
@@ -240,9 +265,9 @@ def extract_tables_with_camelot(pdf_path):
         dataframes.append(table.df) # Append the DataFrame to the list
 
         if print_all == 'on' or print_page == 'on': # Loop through each table and print its content
-            print("")
-            print("Page 2+ processed data:")
+            print("---------Page 2 processed data:----------")
             print(table.df)
+            print("-------Page 2 processed data End:--------")
 
     return dataframes
 
