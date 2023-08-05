@@ -6,10 +6,16 @@ import re
 import PyPDF2
 import matplotlib.pyplot as plt
 import traceback
+import logging
 from mysecrets import PDF_DIR, CSV_FILE
 
-# Function to get a list of PDF files in a directory and its subdirectories
-def get_pdf_files_recursive(PDF_DIR):
+# Turn on for logging during testing!
+print_all = 'off'
+print_extract = 'off'
+print_page = 'off'
+print_plot = 'off'
+
+def get_pdf_files_recursive(PDF_DIR): # Function to get a list of PDF files in a directory and its subdirectories
     pdf_files = []
     for root, _, files in os.walk(PDF_DIR):
         for file in files:
@@ -17,14 +23,7 @@ def get_pdf_files_recursive(PDF_DIR):
                 pdf_files.append(os.path.join(root, file))
     return pdf_files
 
-# Global variable to define headers to include
-headers_to_include = ["Date", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
-
-# Turn on for logging during testing!
-print_all = 'on'
-print_extract = 'off'
-print_page = 'off'
-print_plot = 'off'
+headers_to_include = ["Date", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"] # Global variable to define headers to include
 
 def pypdf2_extract_text_from_pdf(pdf_path, page_number):
     with open(pdf_path, 'rb') as pdf_file:
@@ -46,6 +45,10 @@ def extract_tables_with_camelot(pdf_path):
             print("PyPDF2 Extract:")
             print("------------------PyPDF2-----------------")
             print(pypdf2_text_extract)
+            #try:
+            pypdf2_extract_text_from_pdf(pdf_path, page_number=2)
+            #except:
+                #print("No more pages...")
             print("----------------PyPDF2 End---------------")
             print("")
     except ValueError as ve:
@@ -80,12 +83,10 @@ def extract_tables_with_camelot(pdf_path):
         print("Account number: " + account_number)
     
     # Read the first page separately, all others grouped in one loop afterwards
-    tables_page1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=46, column_tol=0, row_tol=0, suppress_stdout=True)
-    # tables_page1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=46, columns=['44,90,318,423,554'])
-    # tables_page1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=46, table_regions=['40,432,602,72'], columns=['43,90,318,423,554'], split_text=True, flag_size=True, column_tol=2, row_tol=2)
+    tables_page1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=46, column_tol=0, row_tol=0, suppress_stdout=True) # x coord table columns for RBC account statement tables: columns=['44,90,318,423,554']
     tables_page2_onwards = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=22, suppress_stdout=True)
 
-    if print_all == 'on': # Print the partsin report
+    if print_all == 'on': # Print the parsing report
         print("")
         print("Parsing Report")
         print (tables_page1[0].parsing_report)
@@ -107,6 +108,12 @@ def extract_tables_with_camelot(pdf_path):
         camelot.plot(tables_page1[0], kind='text')
         camelot.plot(tables_page1[0], kind='grid')
         camelot.plot(tables_page1[0], kind='textedge')
+        plt.show(block=True)
+
+    if print_plot == 'on': # Show PDF table plot
+        camelot.plot(tables_page2_onwards[0], kind='text')
+        camelot.plot(tables_page2_onwards[0], kind='grid')
+        camelot.plot(tables_page2_onwards[0], kind='textedge')
         plt.show(block=True)
 
     dataframes = []
@@ -136,6 +143,9 @@ def extract_tables_with_camelot(pdf_path):
                     is_match = table.df.iloc[0].isin([string_to_find]) # Check if the first row contains the specified string
                     col_index = int(is_match[is_match].index[0]) # Get the column index where the match is True
                     table.df[col_index] = table.df[col_index].str.replace(r'.*\n', '', regex=True)
+
+                    # Update column headers to match standard header pattern
+                    #table.df.rename(columns={1: 0, 2: 1, 3: 2, 4: 3}, inplace=True)
                 
                     if print_all == 'on':
                         print("---------")
@@ -147,8 +157,7 @@ def extract_tables_with_camelot(pdf_path):
                 print(r"Column 'Date\nDescription' not found")
 
         else:
-            # If the header row is not found, skip this table
-            continue
+            continue # If the header row is not found, skip this table
 
         # If Date isn't the first column, shift all columns left, replace NaNs with blank strings (Removes the vertical left column string for page 1)
         if ("Date" not in table.df.iloc[:, 0].values) and ("Date" in table.df.iloc[:, 1].values):
@@ -180,10 +189,8 @@ def extract_tables_with_camelot(pdf_path):
         table.df["Date"] = [f"{date}, {year}" if (date.strip() and date != "Date") else date for date in table.df["Date"]]
 
         # Adds the account number to the table
-        print(table.df)
         table.df.insert(1, "Account Number", "") # Insert new column for Account Numbers
         table.df["Account Number"] = [f"{account_number}" if description.strip() else description for description in table.df[0]] # Append the account number to the "Account Number" column for non-empty description rows
-        print(table.df)
 
         # Fixes multiline concatenation - loops through the DataFrame starting from the second row
         for i in range(1, len(table.df)):
@@ -241,16 +248,14 @@ def extract_tables_with_camelot(pdf_path):
         # Find the index of "Opening Balance" to remove it
         opening_balance_index = table.df[table.df.apply(lambda row: "Opening Balance" in " ".join(row), axis=1)].index
         if len(opening_balance_index) > 0:
-            # If "Opening Balance" is found, set the DataFrame to rows until that index. *** For some reason, it's using a row well below "Closing Balance"... manually adjusted, but need to revisit to clean up
-            #table.df = table.df.iloc[opening_balance_index[0]]
-            table.df = table.df.drop(opening_balance_index[0])
+            table.df = table.df.drop(opening_balance_index[0]) # If "Opening Balance" is found, set the DataFrame to rows until that index. *** For some reason, it's using a row well below "Closing Balance"... manually adjusted, but need to revisit to clean up
 
         # Find the index of "Closing Balance" to remove rows from it and after
         end_index = table.df.loc[table.df.apply(lambda row: "Closing Balance" in " ".join(row), axis=1)].index
         if not end_index.empty:
             table.df = table.df.loc[:end_index.values[0] - 1]
 
-        # Standardize page 2 column headers to match page 1's headers
+        # Standardize page 2 column headers to match standardized headers
         table.df.rename(columns={0: 'Date', 1: 0, 2: 1, 3: 2, 4: 3}, inplace=True)
 
         #Append the year to the "Date" column for non-empty rows
@@ -293,23 +298,23 @@ def process_pdfs(): # Retrieves the files
                 print(f"Didn't process {pdf_path}")
                 continue
         except Exception as e:
-            print("A Camelot error occurred processing the file:", e)
-            traceback.print_exc()
+            log_file_path = os.path.join(os.path.dirname(pdf_path), 'error_log.txt') # Construct the log file path based on the PDF file path
+            logging.basicConfig(filename=log_file_path, level=logging.ERROR, format='%(asctime)s - %(message)s') # Set up logging to write errors to the log file in the same directory as the PDF file
+            logging.error("Didn't process: %s", pdf_path)
+            print("An error occurred processing the file:", e)
+            #traceback.print_exc()
 
     if all_dataframes: # Data extract post-processing cleanup
-        # Concatenate all dataframes into a single DataFrame
-        combined_data = pd.concat(all_dataframes, ignore_index=True)
+        combined_data = pd.concat(all_dataframes, ignore_index=True) # Concatenate all dataframes into a single DataFrame
         #pd.set_option('display.max_rows', None)
 
-        # Drop the last column of NaN values
-        if pd.isna(combined_data.iloc[0, -1]):
+        
+        if pd.isna(combined_data.iloc[0, -1]): # Drop the last column of NaN values
             combined_data = combined_data.drop(combined_data.columns[-1], axis=1)
             #combined_data = combined_data.drop(combined_data.index[-1])
 
-        # Replace empty strings with NaN
-        combined_data = combined_data.replace('', np.nan)
-        # Drop rows that are completely empty in all columns
-        #combined_data = combined_data.dropna(how='all')
+        combined_data = combined_data.replace('', np.nan) # Replace empty strings with NaN
+        #combined_data = combined_data.dropna(how='all') # Drop rows that are completely empty in all columns
         
         # Remove rows containing headers
         headers_to_exclude = ["Date", re.escape(".*"), "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
@@ -318,6 +323,7 @@ def process_pdfs(): # Retrieves the files
 
         # Set the DataFrame columns using the headers from the first page
         #combined_data.columns = headers_to_include
+        
         print("---------------------------------")
         print(combined_data)
         combined_data.columns = ["Date", "Account #", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
