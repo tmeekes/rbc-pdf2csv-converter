@@ -23,7 +23,7 @@ headers_to_include = ["Date", "Description", "Withdrawals ($)", "Deposits ($)", 
 # Turn on for logging during testing!
 print_all = 'off'
 print_extract = 'off'
-print_page = 'on'
+print_page = 'off'
 print_plot = 'off'
 
 def pypdf2_extract_text_from_pdf(pdf_path, page_number):
@@ -123,9 +123,9 @@ def extract_tables_with_camelot(pdf_path):
                 is_match = table.df.iloc[0].isin([string_to_find]) # Check if the first row contains the specified string
                 if any(is_match):
                     col_index = int(is_match[is_match].index[0]) # Get the column index where the match is True
-                    table.df.insert(col_index, 'D', table.df[col_index]) # Duplicate the column to the left by inserting it at the same index
-                    table.df.loc[~table.df['D'].str.contains(r'\n'), 'D'] = "" # In the date column, replace any values that don't have "\n" in them with " "
-                    table.df['D'] = table.df['D'].str.replace(r'\n.*', '', regex=True) # In the date column, trim "\n"
+                    table.df.insert(col_index, 'Date', table.df[col_index]) # Duplicate the column to the left by inserting it at the same index
+                    table.df.loc[~table.df['Date'].str.contains(r'\n'), 'Date'] = "" # In the date column, replace any values that don't have "\n" in them with " "
+                    table.df['Date'] = table.df['Date'].str.replace(r'\n.*', '', regex=True) # In the date column, trim "\n"
                 
                     # In the description column, trim anything from the "\" of the first "\n"
                     is_match = table.df.iloc[0].isin([string_to_find]) # Check if the first row contains the specified string
@@ -171,11 +171,11 @@ def extract_tables_with_camelot(pdf_path):
             table.df = table.df.loc[:end_index.values[0] - 1]
 
         #Append the year to the "Date" column for non-empty rows
-        table.df[0] = [f"{date}, {year}" if (date.strip() and date != "Date") else date for date in table.df[0]]
+        table.df["Date"] = [f"{date}, {year}" if (date.strip() and date != "Date") else date for date in table.df["Date"]]
 
         # Adds the account number to the table
         table.df.insert(1, "Account Number", "") # Insert new column for Account Numbers
-        table.df["Account Number"] = [f"{account_number}" if description.strip() else description for description in table.df['D']] # Append the account number to the "Account Number" column for non-empty description rows
+        table.df["Account Number"] = [f"{account_number}" if description.strip() else description for description in table.df['Date']] # Append the account number to the "Account Number" column for non-empty description rows
 
         # Fixes multiline concatenation - loops through the DataFrame starting from the second row
         for i in range(1, len(table.df)):
@@ -243,15 +243,14 @@ def extract_tables_with_camelot(pdf_path):
             table.df = table.df.loc[:end_index.values[0] - 1]
 
         # Standardize page 2 column headers to match page 1's headers
-        table.df.rename(columns={1: 'D',2: 1,3: 2,4: 3,5: 4}, inplace=True)
+        table.df.rename(columns={0: 'Date', 1: 0, 2: 1, 3: 2, 4: 3}, inplace=True)
 
         #Append the year to the "Date" column for non-empty rows
-        table.df[0] = [f"{date}, {year}" if date.strip() else date for date in table.df[0]]
+        table.df["Date"] = [f"{date}, {year}" if date.strip() else date for date in table.df["Date"]]
 
         # Adds the account number to the table
         table.df.insert(1, "Account Number", "") # Insert new column for Account Numbers
-        print(table.df)
-        table.df["Account Number"] = [f"{account_number}" if description.strip() else description for description in table.df['D']] # Append the account number to the "Account Number" column for non-empty description rows
+        table.df["Account Number"] = [f"{account_number}" if description.strip() else description for description in table.df['Date']] # Append the account number to the "Account Number" column for non-empty description rows
 
         # Fixes multiline concatenation - loops through the DataFrame starting from the second row
         for i in range(1, len(table.df)):
@@ -295,9 +294,6 @@ def process_pdfs(): # Retrieves the files
         #pd.set_option('display.max_rows', None)
 
         # Drop the last column of NaN values
-        print("---------------------------------")
-        print("Before clearing last column")
-        print(combined_data)
         if pd.isna(combined_data.iloc[0, -1]):
             combined_data = combined_data.drop(combined_data.columns[-1], axis=1)
             #combined_data = combined_data.drop(combined_data.index[-1])
