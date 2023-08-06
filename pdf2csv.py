@@ -7,6 +7,7 @@ import PyPDF2
 import matplotlib.pyplot as plt
 import traceback
 import logging
+import subprocess
 from mysecrets import PDF_DIR, CSV_FILE
 
 # Turn on for logging during testing!
@@ -287,6 +288,12 @@ def extract_tables_with_camelot(pdf_path):
 def process_pdfs(): # Retrieves the files
     pdf_files = get_pdf_files_recursive(PDF_DIR)
     all_dataframes = []
+    not_processed = []
+
+    # Logging related items
+    not_processed_log_path = os.path.join(os.path.dirname(PDF_DIR), r'!not_processed.txt') # Construct the log file path based on the PDF file path
+    error_log_path = os.path.join(os.path.dirname(PDF_DIR), r'!error_log.txt') # Construct the log file path based on the PDF file path
+    logging.basicConfig(filename=error_log_path, level=logging.ERROR, format='%(asctime)s - %(message)s') # Set up logging to write errors to the log file in the same directory as the PDF file
 
     for pdf_path in pdf_files: # Proceses all files in the given directory
         try:
@@ -296,12 +303,11 @@ def process_pdfs(): # Retrieves the files
                 all_dataframes.extend(dataframes_camelot)
             else:
                 print(f"Didn't process {pdf_path}")
+                not_processed.append(pdf_path)
                 continue
         except Exception as e:
-            log_file_path = os.path.join(os.path.dirname(pdf_path), 'error_log.txt') # Construct the log file path based on the PDF file path
-            logging.basicConfig(filename=log_file_path, level=logging.ERROR, format='%(asctime)s - %(message)s') # Set up logging to write errors to the log file in the same directory as the PDF file
             logging.error("Didn't process: %s", pdf_path)
-            print("An error occurred processing the file:", e)
+            print(f"An error occurred processing the file: {pdf_path} |", e)
             #traceback.print_exc()
 
     if all_dataframes: # Data extract post-processing cleanup
@@ -323,9 +329,7 @@ def process_pdfs(): # Retrieves the files
 
         # Set the DataFrame columns using the headers from the first page
         #combined_data.columns = headers_to_include
-        
-        print("---------------------------------")
-        print(combined_data)
+
         combined_data.columns = ["Date", "Account #", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
 
         # Forward-fill missing dates in the "Date" column
@@ -333,10 +337,33 @@ def process_pdfs(): # Retrieves the files
 
         csv_path = os.path.join(PDF_DIR, f"{CSV_FILE}.csv")
         combined_data.to_csv(csv_path, index=False)
-        print(combined_data)
         print(f"Data saved to {csv_path}")
+
+        if not_processed:
+            with open(not_processed_log_path, 'w') as file:
+                file.write("\n".join(not_processed))
+            print(f"Unprocessed log file saved to {not_processed_log_path}")
+
+        if print_all == 'on' or print_page == 'on': # Loop through each table and print its content
+            print("-------------Combined data:--------------")
+            print(combined_data)
+            print("----------End of combined data:----------")
     else:
         print("No data extracted from any PDFs.")
+
+    # Redirect stdout and stderr to a log file
+    log_file_path = 'script_log.txt'
+    with open(log_file_path, 'w') as log_file:
+        # Run the main script and capture the terminal output in the log file
+        subprocess.call(['python', 'pdf2csv.py'], stdout=log_file, stderr=subprocess.STDOUT)
+
+    # Move the log file to the PDF directory
+    if os.path.exists(log_file_path):
+        log_file_dest = os.path.join(PDF_DIR, '!script_log.txt')
+        os.rename(log_file_path, log_file_dest)
+        print(f"Log file saved to: {log_file_dest}")
+    else:
+        print("Log file not found.")
 
 # Replace 'YOUR_PDF_DIRECTORY' and 'output_csv_file' with your desired values in the mysecrets.py file.
 try:
