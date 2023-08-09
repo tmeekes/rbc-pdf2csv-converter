@@ -12,8 +12,8 @@ from mysecrets import PDF_DIR, CSV_FILE
 
 # Turn on for logging during testing!
 print_all = 'off'
-print_extract = 'on'
-print_page = 'on'
+print_extract = 'off'
+print_page = 'off'
 print_plot = 'off'
 print_logs = 'off'
 if print_all == 'on':
@@ -90,7 +90,7 @@ def extract_tables_with_camelot(pdf_path, year, account_number): # Function to e
     tables_pages = []
     tables_page1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=46, column_tol=0, row_tol=0, suppress_stdout=True) # Extract pg 1 with explicit parameters
     tables_page2_plus = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=22, column_tol=2, row_tol=2, suppress_stdout=True) # Extract remaining pgs with different parameters
-    if tables_page2_plus.empty:
+    if len(tables_page2_plus) == 0:
         tables_page2_plus = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=50, column_tol=2, row_tol=2, suppress_stdout=True) # Extract remaining pgs with different parameters
 
     # Combines tables series
