@@ -12,9 +12,15 @@ from mysecrets import PDF_DIR, CSV_FILE
 
 # Turn on for logging during testing!
 print_all = 'off'
-print_extract = 'off'
+print_extract = 'on'
 print_page = 'off'
 print_plot = 'off'
+print_logs = 'off'
+if print_all == 'on':
+    print_extract = 'on'
+    print_page = 'on'
+    print_plot = 'on'
+    print_logs = 'on'
 
 def get_pdf_files_recursive(PDF_DIR): # Function to get a list of PDF files in a directory and its subdirectories
     pdf_files = []
@@ -26,38 +32,32 @@ def get_pdf_files_recursive(PDF_DIR): # Function to get a list of PDF files in a
 
 headers_to_include = ["Date", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"] # Global variable to define headers to include
 
-def pypdf2_extract_text_from_pdf(pdf_path, page_number):
-    with open(pdf_path, 'rb') as pdf_file:
-        pdf_reader = PyPDF2.PdfFileReader(pdf_file)
-        if page_number < 1 or page_number > pdf_reader.numPages:
-            raise ValueError(f"Invalid page number. Must be between 1 and {pdf_reader.numPages}.")
-
-        page = pdf_reader.getPage(page_number - 1)  # Page numbers are 0-based     
-        return page.extract_text()
-
-# Function to extract tables from the PDF using Camelot in stream mode
-def extract_tables_with_camelot(pdf_path):
-    
+def pypdf2_extract_text_from_pdf(pdf_path): # Uses PyPDF2 to extract information that Camelot misses (namely account #)
     try:
-        # Use PyPDF2 to extract the text from the first page
-        pypdf2_text_extract = pypdf2_extract_text_from_pdf(pdf_path, page_number=1)
-        if print_all == 'on' or print_extract == 'on':
-            print("")
-            print("PyPDF2 Extract:")
-            print("------------------PyPDF2-----------------")
-            print(pypdf2_text_extract)
-            #try:
-            pypdf2_extract_text_from_pdf(pdf_path, page_number=2)
-            #except:
-                #print("No more pages...")
-            print("----------------PyPDF2 End---------------")
-            print("")
+        with open(pdf_path, 'rb') as pdf_file:
+            pdf_reader = PyPDF2.PdfFileReader(pdf_file)
+
+            full_text = ""
+            for page_number in range(pdf_reader.numPages):
+                page = pdf_reader.getPage(page_number)
+                full_text += page.extract_text()
+
+            return full_text
     except ValueError as ve:
         print("PyPDF2 Error: ", ve)
     except IndexError as ie:
         print("PyPDF2 Error: ", ie)
     except Exception as e:
         print("An unexpected PyPDF2 error occurred", e)
+
+# Function to extract tables from the PDF using Camelot in stream mode
+def extract_tables_with_camelot(pdf_path): 
+    # Use PyPDF2 to extract the text from the first page
+    pypdf2_text_extract = pypdf2_extract_text_from_pdf(pdf_path)
+    if print_extract == 'on':
+        print("------------------PyPDF2-----------------")
+        print(pypdf2_text_extract)
+        print("----------------PyPDF2 End---------------")
 
     # Search for the pattern "Your RBC personal <anything> account statement"
     match = re.search(r"Your\s+RBC\s+personal\s+.*?\s*account\s+statement", pypdf2_text_extract, re.IGNORECASE)
@@ -83,43 +83,50 @@ def extract_tables_with_camelot(pdf_path):
     if print_all == 'on':
         print("Account number: " + account_number)
     
-    # Read the first page separately, all others grouped in one loop afterwards
-    tables_page1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=46, column_tol=0, row_tol=0, suppress_stdout=True) # x coord table columns for RBC account statement tables: columns=['44,90,318,423,554']
-    tables_page2_onwards = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=22, suppress_stdout=True)
+    # Extract data from pages with camelot-py and combines
+    tables_pages = []
+    tables_page1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=46, column_tol=0, row_tol=0, suppress_stdout=True) # Extract pg 1 with explicit parameters
+    tables_page2_plus = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=30, column_tol=2, row_tol=2, suppress_stdout=True) # Extract remaining pgs with different parameters
+    
+    # Set pandas display to show all columns
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', None)
+
+    for table in tables_page1:
+        tables_pages.append(table)
+
+    for table in tables_page2_plus:
+        tables_pages.append(table)
+
+    # Remove tables that don't conform to the expected transaction table
+    threshold_columns = 5
+    filtered_tables_pages = [table for table in tables_pages if table.shape[1] >= threshold_columns]
 
     if print_all == 'on': # Print the parsing report
         print("")
         print("Parsing Report")
-        print (tables_page1[0].parsing_report)
+        print (tables_pages[0].parsing_report)
         print("")
-    if print_all == 'on' or print_extract == 'on': # Loop through each table and print its content
-        print("Camelot extracted table from page 1 content:")
+    if print_extract == 'on': # Loop through each table and print its content
         print("-----------------Camelot-----------------")
-        for table in tables_page1:
-            print(table.df)
-        print("---------------Camelot End---------------")
-        print("")
-        print("Camelot extracted table from page 2 content:")
-        print("-----------------Camelot-----------------")
-        for table in tables_page2_onwards:
+        for table in filtered_tables_pages:
             print(table.df)
         print("---------------Camelot End---------------")
         print("")
     if print_plot == 'on': # Show PDF table plot
-        camelot.plot(tables_page1[0], kind='text')
-        camelot.plot(tables_page1[0], kind='grid')
-        camelot.plot(tables_page1[0], kind='textedge')
-        plt.show(block=True)
-
-    if print_plot == 'on': # Show PDF table plot
-        camelot.plot(tables_page2_onwards[0], kind='text')
-        camelot.plot(tables_page2_onwards[0], kind='grid')
-        camelot.plot(tables_page2_onwards[0], kind='textedge')
+        #camelot.plot(tables_pages[0], kind='text')
+        #camelot.plot(tables_pages[0], kind='grid')
+        #camelot.plot(tables_pages[0], kind='textedge')
+        camelot.plot(filtered_tables_pages[1], kind='textedge')
+        try:
+            camelot.plot(filtered_tables_pages[2], kind='textedge')
+        except Exception as e:
+            pass
         plt.show(block=True)
 
     dataframes = []
 
-    for table in tables_page1:
+    for table in filtered_tables_pages:
         if table.df.empty:
             continue
 
@@ -161,7 +168,7 @@ def extract_tables_with_camelot(pdf_path):
             continue # If the header row is not found, skip this table
 
         # If Date isn't the first column, shift all columns left, replace NaNs with blank strings (Removes the vertical left column string for page 1)
-        if ("Date" not in table.df.iloc[:, 0].values) and ("Date" in table.df.iloc[:, 1].values):
+        if ("Date" not in table.df.iloc[:, 0].values) and ("Date" in table.df.iloc[:, 1].values) and (table.page == 1):
             table.df = table.df.shift(periods=-1, axis=1)
             table.df.rename(columns={0: 'Date', 'Date': 0}, inplace=True)
             if print_all == 'on':
@@ -186,6 +193,10 @@ def extract_tables_with_camelot(pdf_path):
         if not end_index.empty:
             table.df = table.df.loc[:end_index.values[0] - 1]
 
+        if (table.page) != 1:
+            # Standardize page 2+ column headers to match standardized headers
+            table.df.rename(columns={0: 'Date', 1: 0, 2: 1, 3: 2, 4: 3}, inplace=True)
+
         #Append the year to the "Date" column for non-empty rows
         table.df["Date"] = [f"{date}, {year}" if (date.strip() and date != "Date") else date for date in table.df["Date"]]
 
@@ -204,110 +215,51 @@ def extract_tables_with_camelot(pdf_path):
 
         dataframes.append(table.df) # Append the DataFrame to the list
         
-        if print_all == 'on' or print_page == 'on': # Loop through each table and print its content
+        if print_page == 'on': # Loop through each table and print its content
             print("")
-            print("---------Page 1 processed data:----------")
+            print(f"---------Page {table.page} processed data:----------")
             print(table.df)
-            print("-------Page 1 processed data End:--------")
-
-    for table in tables_page2_onwards:
-        if table.df.empty:
-            continue
-
-        # Find the index of the header row
-        header_index = table.df[table.df.apply(lambda row: all(header in " ".join(row) for header in headers_to_include), axis=1)].index
-
-        if len(header_index) > 0:
-            table.df = table.df.iloc[header_index[0]:] # If the header row is found, set the DataFrame to rows starting from the row after that index
-
-            try: # Fix for PDF extracts that concat Date & Description columns
-                string_to_find = "Date\nDescription" # Sets the name to find (based on the desired column name) from the contents
-                is_match = table.df.iloc[0].isin([string_to_find]) # Check if the first row contains the specified string
-                if any(is_match):
-                    col_index = int(is_match[is_match].index[0]) # Get the column index where the match is True
-                    table.df.insert(col_index, 'Date', table.df[col_index]) # Duplicate the column to the left by inserting it at the same index
-                    table.df.loc[~table.df['Date'].str.contains(r'\n'), 'Date'] = "" # In the date column, replace any values that don't have "\n" in them with " "
-                    table.df['Date'] = table.df['Date'].str.replace(r'\n.*', '', regex=True) # In the date column, trim "\n"
-                
-                    # In the description column, trim anything from the "\" of the first "\n"
-                    is_match = table.df.iloc[0].isin([string_to_find]) # Check if the first row contains the specified string
-                    col_index = int(is_match[is_match].index[0]) # Get the column index where the match is True
-                    table.df[col_index] = table.df[col_index].str.replace(r'.*\n', '', regex=True)
-                
-                    if print_all == 'on':
-                        print("---------")
-                        print("Fix for concatenated Date & Description columns:")
-                        print(table.df)
-
-            except ValueError:
-                # Handle the case where the column name is not found
-                print(r"Column 'Date\nDescription' not found")
-
-        else:
-            continue # If the header row is not found, skip this table
-
-        # Find the index of "Opening Balance" to remove it
-        opening_balance_index = table.df[table.df.apply(lambda row: "Opening Balance" in " ".join(row), axis=1)].index
-        if len(opening_balance_index) > 0:
-            table.df = table.df.drop(opening_balance_index[0]) # If "Opening Balance" is found, set the DataFrame to rows until that index. *** For some reason, it's using a row well below "Closing Balance"... manually adjusted, but need to revisit to clean up
-
-        # Find the index of "Closing Balance" to remove rows from it and after
-        end_index = table.df.loc[table.df.apply(lambda row: "Closing Balance" in " ".join(row), axis=1)].index
-        if not end_index.empty:
-            table.df = table.df.loc[:end_index.values[0] - 1]
-
-        # Standardize page 2 column headers to match standardized headers
-        table.df.rename(columns={0: 'Date', 1: 0, 2: 1, 3: 2, 4: 3}, inplace=True)
-
-        #Append the year to the "Date" column for non-empty rows
-        table.df["Date"] = [f"{date}, {year}" if date.strip() else date for date in table.df["Date"]]
-
-        # Adds the account number to the table
-        table.df.insert(1, "Account Number", "") # Insert new column for Account Numbers
-        table.df["Account Number"] = [f"{account_number}" if description.strip() else description for description in table.df[0]] # Append the account number to the "Account Number" column for non-empty description rows
-
-        # Fixes multiline concatenation - loops through the DataFrame starting from the second row
-        for i in range(1, len(table.df)):
-            if table.df.iloc[i, 2].strip(): # Check if the description is not empty for the current row
-                if table.df.iloc[i, 3] == '' and table.df.iloc[i, 4] == '': # Check if both withdrawals and deposits are empty for the current row
-                    table.df.iloc[i+1, 2] = table.df.iloc[i, 2] + ' | ' + table.df.iloc[i+1, 2] # Concatenate the description with the next row's description
-                    table.df.iloc[i, 2] = '' # Clear out the current row's description
-
-        table.df = table.df[table.df.iloc[:, 2].str.strip() != ''] # Drop rows where the description is empty
-
-        dataframes.append(table.df) # Append the DataFrame to the list
-
-        if print_all == 'on' or print_page == 'on': # Loop through each table and print its content
-            print("---------Page 2 processed data:----------")
-            print(table.df)
-            print("-------Page 2 processed data End:--------")
+            print(f"-------Page {table.page} processed data End:--------")
 
     return dataframes
 
 # Function to process PDFs and save data to CSV
 def process_pdfs(): # Retrieves the files
     pdf_files = get_pdf_files_recursive(PDF_DIR)
+    total_files = len(pdf_files)
+    processed_files = 0
+    progress_mark = 0
     all_dataframes = []
     not_processed = []
 
     # Logging related items
     not_processed_log_path = os.path.join(os.path.dirname(PDF_DIR), r'!not_processed.txt') # Construct the log file path based on the PDF file path
     error_log_path = os.path.join(os.path.dirname(PDF_DIR), r'!error_log.txt') # Construct the log file path based on the PDF file path
+    with open(error_log_path, 'w'):
+        pass
     logging.basicConfig(filename=error_log_path, level=logging.ERROR, format='%(asctime)s - %(message)s') # Set up logging to write errors to the log file in the same directory as the PDF file
 
     for pdf_path in pdf_files: # Proceses all files in the given directory
         try:
             dataframes_camelot = extract_tables_with_camelot(pdf_path)
             if dataframes_camelot:
-                print(f"Processed {pdf_path}")
+                if print_logs == 'on':
+                    print(f"Processed {pdf_path}")
                 all_dataframes.extend(dataframes_camelot)
             else:
-                print(f"Didn't process {pdf_path}")
+                if print_logs == 'on':
+                    print(f"Didn't process {pdf_path}")
                 not_processed.append(pdf_path)
                 continue
+            processed_files += 1 # These lines handle log messages for % file completion
+            percentage = (processed_files/total_files) * 100
+            if percentage >= progress_mark + 4: # Print the update message for every x% completion
+                progress_mark = (int(percentage) // 4) * 4
+                print(f"{progress_mark:.2f}% of files processed.")
         except Exception as e:
             logging.error("Didn't process: %s", pdf_path)
-            print(f"An error occurred processing the file: {pdf_path} |", e)
+            if print_logs == 'on':
+                print(f"An error occurred processing the file: {pdf_path} |", e)
             #traceback.print_exc()
 
     if all_dataframes: # Data extract post-processing cleanup
@@ -337,37 +289,45 @@ def process_pdfs(): # Retrieves the files
 
         csv_path = os.path.join(PDF_DIR, f"{CSV_FILE}.csv")
         combined_data.to_csv(csv_path, index=False)
-        print(f"Data saved to {csv_path}")
+        if print_logs == 'on':
+            print(f"Data saved to {csv_path}")
 
         if not_processed:
             with open(not_processed_log_path, 'w') as file:
                 file.write("\n".join(not_processed))
-            print(f"Unprocessed log file saved to {not_processed_log_path}")
+            if print_logs == 'on':
+                print(f"Unprocessed log file saved to {not_processed_log_path}")
 
-        if print_all == 'on' or print_page == 'on': # Loop through each table and print its content
+        if print_page == 'on': # Loop through each table and print its content
             print("-------------Combined data:--------------")
             print(combined_data)
             print("----------End of combined data:----------")
     else:
-        print("No data extracted from any PDFs.")
+        if print_logs == 'on':
+            print("No data extracted from any PDFs.")
 
-    # Redirect stdout and stderr to a log file
-    log_file_path = 'script_log.txt'
-    with open(log_file_path, 'w') as log_file:
-        # Run the main script and capture the terminal output in the log file
-        subprocess.call(['python', 'pdf2csv.py'], stdout=log_file, stderr=subprocess.STDOUT)
+    try:
+        # Redirect stdout and stderr to a log file
+        log_file_path = 'script_log.txt'
+        with open(log_file_path, 'w') as log_file:
+            # Run the main script and capture the terminal output in the log file
+            subprocess.call(['python', 'pdf2csv.py'], stdout=log_file, stderr=subprocess.STDOUT)
 
-    # Move the log file to the PDF directory
-    if os.path.exists(log_file_path):
-        log_file_dest = os.path.join(PDF_DIR, '!script_log.txt')
-        os.rename(log_file_path, log_file_dest)
-        print(f"Log file saved to: {log_file_dest}")
-    else:
-        print("Log file not found.")
+        # Move the log file to the PDF directory
+        if os.path.exists(log_file_path):
+            log_file_dest = os.path.join(PDF_DIR, '!script_log.txt')
+            os.rename(log_file_path, log_file_dest)
+            print(f"Log file saved to: {log_file_dest}")
+        else:
+            print("Log file not found.")
+    except Exception as e:
+        if print_logs == 'on':
+            print("A script log file error occurred")
 
 # Replace 'YOUR_PDF_DIRECTORY' and 'output_csv_file' with your desired values in the mysecrets.py file.
 try:
     process_pdfs()
 except Exception as e:
-    print("A PDF processing error has occurred: ", e)
+    if print_logs == 'on':
+        print("A PDF processing error has occurred: ", e)
     traceback.print_exc()
