@@ -13,7 +13,7 @@ from mysecrets import PDF_DIR, CSV_FILE
 # Turn on for logging during testing!
 print_all = 'off'
 print_extract = 'on'
-print_page = 'off'
+print_page = 'on'
 print_plot = 'off'
 print_logs = 'off'
 if print_all == 'on':
@@ -21,6 +21,8 @@ if print_all == 'on':
     print_page = 'on'
     print_plot = 'on'
     print_logs = 'on'
+
+headers_to_include = ["Date", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"] # Global variable to define headers to include
 
 def get_pdf_files_recursive(PDF_DIR): # Function to get a list of PDF files in a directory and its subdirectories
     pdf_files = []
@@ -30,77 +32,72 @@ def get_pdf_files_recursive(PDF_DIR): # Function to get a list of PDF files in a
                 pdf_files.append(os.path.join(root, file))
     return pdf_files
 
-headers_to_include = ["Date", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"] # Global variable to define headers to include
-
 def pypdf2_extract_text_from_pdf(pdf_path): # Uses PyPDF2 to extract information that Camelot misses (namely account #)
     try:
         with open(pdf_path, 'rb') as pdf_file:
             pdf_reader = PyPDF2.PdfFileReader(pdf_file)
 
-            full_text = ""
+            pypdf2_full_extract = ""
             for page_number in range(pdf_reader.numPages):
                 page = pdf_reader.getPage(page_number)
-                full_text += page.extract_text()
+                pypdf2_full_extract += page.extract_text()
 
-            return full_text
     except ValueError as ve:
-        print("PyPDF2 Error: ", ve)
+        print("PyPDF2 extract error: ", ve)
     except IndexError as ie:
-        print("PyPDF2 Error: ", ie)
+        print("PyPDF2 extract error: ", ie)
     except Exception as e:
-        print("An unexpected PyPDF2 error occurred", e)
+        print("An unexpected PyPDF2 extract error occurred", e)
 
-# Function to extract tables from the PDF using Camelot in stream mode
-def extract_tables_with_camelot(pdf_path): 
+
     # Use PyPDF2 to extract the text from the first page
-    pypdf2_text_extract = pypdf2_extract_text_from_pdf(pdf_path)
     if print_extract == 'on':
         print("------------------PyPDF2-----------------")
-        print(pypdf2_text_extract)
+        print(pypdf2_full_extract)
         print("----------------PyPDF2 End---------------")
 
     # Search for the pattern "Your RBC personal <anything> account statement"
-    match = re.search(r"Your\s+RBC\s+personal\s+.*?\s*account\s+statement", pypdf2_text_extract, re.IGNORECASE)
-    if not match:
-        return None
-
-    if print_all == 'on':
-        print("Match: " + str(match))
+    match = re.search(r"Your\s+RBC\s+personal\s+.*?\s*account\s+statement", pypdf2_full_extract, re.IGNORECASE)
+    # if not match:
+        # return None
 
     # Find the string right below the matched pattern
     year_pattern = r"(\d{4})"
-    year_match = re.search(year_pattern, pypdf2_text_extract[match.end():])
+    year_match = re.search(year_pattern, pypdf2_full_extract[match.end():])
     if not year_match:
         year = "2000"
     else:
         year = year_match.group(1)  # Extract the captured group containing the year
     if print_all == 'on':
+        print("Match: " + str(match))
         print("Year: " + year)
 
     # Find the account number after "Your account number:"
-    account_number = re.search(r'Your account number:\s*(\d{5}-\d{7})', pypdf2_text_extract)
+    account_number = re.search(r'Your account number:\s*(\d{5}-\d{7})', pypdf2_full_extract)
     account_number = account_number.group(1) if account_number else None
     if print_all == 'on':
         print("Account number: " + account_number)
-    
-    # Extract data from pages with camelot-py and combines
-    tables_pages = []
-    tables_page1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=46, column_tol=0, row_tol=0, suppress_stdout=True) # Extract pg 1 with explicit parameters
-    tables_page2_plus = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=30, column_tol=2, row_tol=2, suppress_stdout=True) # Extract remaining pgs with different parameters
+
+    return year, account_number
+
+def extract_tables_with_camelot(pdf_path, year, account_number): # Function to extract tables from the PDF using Camelot in stream mode
     
     # Set pandas display to show all columns
     pd.set_option('display.max_columns', None)
     pd.set_option('display.width', None)
+    
+    # Extract data from pages with camelot-py and combines
+    tables_pages = []
+    tables_page1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=46, column_tol=0, row_tol=0, suppress_stdout=True) # Extract pg 1 with explicit parameters
+    tables_page2_plus = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=22, column_tol=2, row_tol=2, suppress_stdout=True) # Extract remaining pgs with different parameters
+    if tables_page2_plus.empty:
+        tables_page2_plus = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=50, column_tol=2, row_tol=2, suppress_stdout=True) # Extract remaining pgs with different parameters
 
-    for table in tables_page1:
-        tables_pages.append(table)
-
-    for table in tables_page2_plus:
-        tables_pages.append(table)
-
-    # Remove tables that don't conform to the expected transaction table
-    threshold_columns = 5
-    filtered_tables_pages = [table for table in tables_pages if table.shape[1] >= threshold_columns]
+    # Combines tables series
+    tables_pages.extend(tables_page1)
+    tables_pages.extend(tables_page2_plus)
+    
+    filtered_tables_pages = [table for table in tables_pages if table.shape[1] >= 5] # Remove tables that don't conform to the expected transaction table
 
     if print_all == 'on': # Print the parsing report
         print("")
@@ -223,8 +220,33 @@ def extract_tables_with_camelot(pdf_path):
 
     return dataframes
 
-# Function to process PDFs and save data to CSV
-def process_pdfs(): # Retrieves the files
+def post_extraction_processing(dataframes): # Handles additional formatting of full dataframe to clean the data once its been standardized and combined
+    data = pd.concat(dataframes, ignore_index=True) # Concatenate all dataframes into a single DataFrame
+    #pd.set_option('display.max_rows', None)
+
+    
+    if pd.isna(data.iloc[0, -1]): # Drop the last column of NaN values
+        data = data.drop(data.columns[-1], axis=1)
+
+    data = data.replace('', np.nan) # Replace empty strings with NaN
+    #data = data.dropna(how='all') # Drop rows that are completely empty in all columns
+    
+    # Remove rows containing headers
+    headers_to_exclude = ["Date", re.escape(".*"), "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
+    for header in headers_to_exclude:
+        data = data[~data.apply(lambda row: header in " ".join(row.astype(str)), axis=1)]
+
+    # Set the DataFrame columns using the headers from the first page
+    #data.columns = headers_to_include
+
+    data.columns = ["Date", "Account #", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
+
+    # Forward-fill missing dates in the "Date" column
+    data["Date"].fillna(method='ffill', inplace=True)
+
+    return data
+
+def process_pdfs(): # Function to process PDFs and save data to CSV
     pdf_files = get_pdf_files_recursive(PDF_DIR)
     total_files = len(pdf_files)
     processed_files = 0
@@ -240,8 +262,10 @@ def process_pdfs(): # Retrieves the files
     logging.basicConfig(filename=error_log_path, level=logging.ERROR, format='%(asctime)s - %(message)s') # Set up logging to write errors to the log file in the same directory as the PDF file
 
     for pdf_path in pdf_files: # Proceses all files in the given directory
+        
+        statement_year, statement_acct_num = pypdf2_extract_text_from_pdf(pdf_path)
         try:
-            dataframes_camelot = extract_tables_with_camelot(pdf_path)
+            dataframes_camelot = extract_tables_with_camelot(pdf_path, statement_year, statement_acct_num)
             if dataframes_camelot:
                 if print_logs == 'on':
                     print(f"Processed {pdf_path}")
@@ -263,29 +287,7 @@ def process_pdfs(): # Retrieves the files
             #traceback.print_exc()
 
     if all_dataframes: # Data extract post-processing cleanup
-        combined_data = pd.concat(all_dataframes, ignore_index=True) # Concatenate all dataframes into a single DataFrame
-        #pd.set_option('display.max_rows', None)
-
-        
-        if pd.isna(combined_data.iloc[0, -1]): # Drop the last column of NaN values
-            combined_data = combined_data.drop(combined_data.columns[-1], axis=1)
-            #combined_data = combined_data.drop(combined_data.index[-1])
-
-        combined_data = combined_data.replace('', np.nan) # Replace empty strings with NaN
-        #combined_data = combined_data.dropna(how='all') # Drop rows that are completely empty in all columns
-        
-        # Remove rows containing headers
-        headers_to_exclude = ["Date", re.escape(".*"), "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
-        for header in headers_to_exclude:
-            combined_data = combined_data[~combined_data.apply(lambda row: header in " ".join(row.astype(str)), axis=1)]
-
-        # Set the DataFrame columns using the headers from the first page
-        #combined_data.columns = headers_to_include
-
-        combined_data.columns = ["Date", "Account #", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
-
-        # Forward-fill missing dates in the "Date" column
-        combined_data["Date"].fillna(method='ffill', inplace=True)
+        combined_data = post_extraction_processing(all_dataframes)
 
         csv_path = os.path.join(PDF_DIR, f"{CSV_FILE}.csv")
         combined_data.to_csv(csv_path, index=False)
