@@ -1,6 +1,7 @@
 # ---> Project Files
 pdf2csv/
 mysecrets.py
+script_log.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
