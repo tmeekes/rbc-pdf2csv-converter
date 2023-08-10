@@ -91,7 +91,7 @@ def extract_tables_with_camelot(pdf_path, year, year2, account_number): # Functi
     # Extract data from pages with camelot-py and combines
     tables_pgs = []
     tables_pg1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=32, column_tol=2, row_tol=2, suppress_stdout=True) # Extract pg 1 with explicit parameters
-    tables_pg2p = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=22, column_tol=2, row_tol=2) # Extract remaining pgs with different parameters
+    tables_pg2p = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=22, column_tol=2, row_tol=2, suppress_stdout=True) # Extract remaining pgs with different parameters
     # cleaned_pg2p = [table for table in tables_pg2p if table.shape[1] >= 5]
     # if len(cleaned_pg2p) == 0:
     #     tables_pg2p = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=50, column_tol=2, row_tol=2, suppress_stdout=True) # Extract remaining pgs with different parameters
@@ -208,19 +208,20 @@ def extract_tables_with_camelot(pdf_path, year, year2, account_number): # Functi
             table.df["Date"] = [f"{date}, {year}" if (date.strip() and date != "Date") else date for date in table.df["Date"]]
         else:
             table.df["Date"] = [f"{date}, {year2}" if date.startswith("Jan") and (date.strip() and date != "Date") else f"{date}, {year}" if (date.strip() and date != "Date") else date for date in table.df["Date"]]
+        
+        # Fixes multiline concatenation - loops through the DataFrame starting from the second row
+        for i in range(1, len(table.df)):
+            if table.df.iloc[i, 2-1].strip(): # Check if the description is not empty for the current row
+                if table.df.iloc[i, 3-1] == '' and table.df.iloc[i, 4-1] == '': # Check if both withdrawals and deposits are empty for the current row
+                    table.df.iloc[i+1, 2-1] = table.df.iloc[i, 2-1] + ' | ' + table.df.iloc[i+1, 2-1] # Concatenate the description with the next row's description
+                    table.df.iloc[i, 2-1] = '' # Clear out the current row's description
+                    table.df.iloc[i+1, 0] = table.df.iloc[i, 0] + table.df.iloc[i+1, 0] # Concatenate the date with the next row's date
+
+        table.df = table.df[table.df.iloc[:, 2].str.strip() != ''] # Drop rows where the description is empty
 
         # Adds the account number to the table
         table.df.insert(1, "Account Number", "") # Insert new column for Account Numbers
         table.df["Account Number"] = [f"{account_number}" if description.strip() else description for description in table.df[0]] # Append the account number to the "Account Number" column for non-empty description rows
-
-        # Fixes multiline concatenation - loops through the DataFrame starting from the second row
-        for i in range(1, len(table.df)):
-            if table.df.iloc[i, 2].strip(): # Check if the description is not empty for the current row
-                if table.df.iloc[i, 3] == '' and table.df.iloc[i, 4] == '': # Check if both withdrawals and deposits are empty for the current row
-                    table.df.iloc[i+1, 2] = table.df.iloc[i, 2] + ' | ' + table.df.iloc[i+1, 2] # Concatenate the description with the next row's description
-                    table.df.iloc[i, 2] = '' # Clear out the current row's description
-
-        table.df = table.df[table.df.iloc[:, 2].str.strip() != ''] # Drop rows where the description is empty
 
         dataframes.append(table.df) # Append the DataFrame to the list
         
