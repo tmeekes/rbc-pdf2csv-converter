@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import traceback
 import logging
 import subprocess
+from tqdm import tqdm
 from mysecrets import PDF_DIR, CSV_FILE
 
 # Turn on for logging during testing!
@@ -18,12 +19,14 @@ print_page = 'off'
 print_plot = 'off'
 print_logs = 'off'
 print_errors = 'off'
+print_progress = 'off'
 if print_all == 'on':
     print_extract = 'on'
     print_page = 'on'
     print_plot = 'on'
     print_logs = 'on'
     print_errors = 'on'
+    print_progress = 'on'
 if print_errors == 'off':
     warnings.filterwarnings("ignore") # Suppress PDFReadWarnings
 
@@ -207,7 +210,7 @@ def extract_tables_with_camelot(pdf_path, year, year2, account_number): # Functi
         if year == year2:
             table.df["Date"] = [f"{date}, {year}" if (date.strip() and date != "Date") else date for date in table.df["Date"]]
         else:
-            table.df["Date"] = [f"{date}, {year2}" if date.startswith("Jan") and (date.strip() and date != "Date") else f"{date}, {year}" if (date.strip() and date != "Date") else date for date in table.df["Date"]]
+            table.df["Date"] = [f"{date}, {year2}" if "Jan" in date and (date.strip() and date != "Date") else f"{date}, {year}" if (date.strip() and date != "Date") else date for date in table.df["Date"]]
 
         # Adds the account number to the table
         table.df.insert(1, "Account Number", "") # Insert new column for Account Numbers
@@ -274,7 +277,8 @@ def process_pdfs(): # Function to process PDFs and save data to CSV
         pass
     logging.basicConfig(filename=error_log_path, level=logging.ERROR, format='%(asctime)s - %(message)s') # Set up logging to write errors to the log file in the same directory as the PDF file
 
-    for pdf_path in pdf_files: # Proceses all files in the given directory
+    #for pdf_path in pdf_files: # Proceses all files in the given directory
+    for pdf_path in tqdm(pdf_files, desc="Processing files", unit="file", leave=False): # Proceses all files in the given directory
         try:
             statement_year, statement_year2, statement_acct_num = pypdf2_extract_text_from_pdf(pdf_path)
         except ValueError as ve:
@@ -301,7 +305,8 @@ def process_pdfs(): # Function to process PDFs and save data to CSV
             percentage = (processed_files/total_files) * 100
             if percentage >= progress_mark + 4: # Print the update message for every x% completion
                 progress_mark = (int(percentage) // 4) * 4
-                print(f"{progress_mark:.2f}% of files processed.")
+                if print_progress == 'on':
+                    print(f"{progress_mark:.2f}% of files processed.")
         except Exception as e:
             logging.error("Didn't process: %s", pdf_path)
             if print_logs == 'on':
