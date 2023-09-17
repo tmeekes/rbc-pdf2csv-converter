@@ -17,9 +17,9 @@ print_all = 'off'
 print_extract = 'off'
 print_page = 'off'
 print_plot = 'off'
-print_logs = 'on'
+print_logs = 'off'
 print_errors = 'off'
-print_trace = 'off'
+print_trace = 'on'
 #print_progress = 'off'
 
 if print_all == 'on':
@@ -194,10 +194,13 @@ def extract_account_tables_with_camelot(pdf_path, year, year2, account_number): 
         for col in table.df.columns:
             if any(string in table.df[col].values for string in headers_to_include):
                 new_col_name = f"{table.df[col].iloc[0]}"
+                if 'Withdrawals ($)' in new_col_name: # Look for withdrawals in the new column name
+                    new_col_name = 'Credit ($)'
+                if 'Deposits ($)' in new_col_name: # Look for description in the new column name
+                    new_col_name = 'Debit ($)'
                 table.df.rename(columns={col: new_col_name}, inplace=True) # rename the columns
                 selected_columns.append(new_col_name)
-        # Create a new DataFrame with only the desired columns
-        table.df = table.df[selected_columns]
+        table.df = table.df[selected_columns] # Create a new DataFrame with only the desired columns
 
         # Find the index of "Opening Balance" to remove it
         opening_balance_index = table.df[table.df.apply(lambda row: "Opening Balance" in " ".join(row), axis=1)].index
@@ -228,6 +231,16 @@ def extract_account_tables_with_camelot(pdf_path, year, year2, account_number): 
                     table.df.iloc[i+1, 0] = table.df.iloc[i, 0] + table.df.iloc[i+1, 0] # Concatenate the date with the next row's date
         table.df = table.df[table.df.iloc[:, 2].str.strip() != ''] # Drop rows where the description is empty OR indicates no activity
         table.df = table.df[table.df.iloc[:, 2].str.strip() != 'No activity for this period'] # Drop rows where the description is empty OR indicates no activity
+
+        # for col in table.df.columns: # Renames the columns for consistency with credit statements
+        #     if table.df[col].apply(lambda x: any(substring in str(x) for substring in headers_to_include)).any():
+        #         new_col_name = f"{table.df[col].iloc[0]}"
+        #         if 'Withdrawals ($)' in new_col_name: # Look for withdrawals in the new column name
+        #             new_col_name = 'Credit ($)'
+        #         if 'Deposits ($)' in new_col_name: # Look for description in the new column name
+        #             new_col_name = 'Debit ($)'
+        #         table.df.rename(columns={col: new_col_name}, inplace=True) # rename the columns
+        
         dataframes.append(table.df) # Append the DataFrame to the list
 
         if print_page == 'on': # Loop through each table and print its content
@@ -321,12 +334,20 @@ def extract_credit_tables_with_camelot(pdf_path, year, year2, account_number):
                 if 'DESCRIPTION' in new_col_name: # Look for description in the new column name
                     new_col_name = 'Description'
                 if 'AMOUNT ($)' in new_col_name: # Look for description in the new column name
-                    new_col_name = 'Amount ($)'
+                    new_col_name = 'Credit ($)'
                 table.df.rename(columns={col: new_col_name}, inplace=True) # rename the columns
                 selected_columns.append(new_col_name)
-        print(table.df)
         table.df = table.df[selected_columns] # Create a new DataFrame with only the desired columns
-        print(table.df)
+
+        # Find the index of "TOTAL ACCOUNT BALANCE" to remove rows from it and after
+        end_index_tb = table.df.loc[table.df.apply(lambda row: "TOTAL ACCOUNT BALANCE" in " ".join(row), axis=1)].index
+        if not end_index_tb.empty:
+            table.df = table.df.loc[:end_index_tb.values[0] - 1]
+
+        # Find the index of "NEW BALANCE" to remove rows from it and after
+        end_index_nb = table.df.loc[table.df.apply(lambda row: "NEW BALANCE" in " ".join(row), axis=1)].index
+        if not end_index_nb.empty:
+            table.df = table.df.loc[:end_index_nb.values[0] - 1]
 
         #Append the year to the "Date" column for non-empty rows
         if year == year2:
@@ -336,15 +357,23 @@ def extract_credit_tables_with_camelot(pdf_path, year, year2, account_number):
 
         # Adds the account number to the table
         table.df.insert(1, "Account #", "") # Insert new column for Account Numbers
+        table.df.insert(4, "Debit ($)", "") # Insert new debit column for splitting negative values to
+        table.df.insert(5, "Balance ($)", "") # Insert a balance column to match the account statements for consistency in processing
 
-        # Fixes multiline concatenation - loops through the DataFrame starting from the second row
+        # Loops through the DataFrame starting from the second row to fix multiline concatenation, split out negative values to the debit column, add the account number
+        table.df = table.df.reset_index(drop=True)
         for i in range(1, len(table.df)):
-            if table.df.loc[i, 'Date'].strip() and table.df.loc[i, 'Amount ($)'].strip(): # Check if the date and amount rows are empty for the current row
-                table.df.iloc[i, 1] = account_number
+            if table.df.loc[i, 'Description'].lower().startswith('foreign currency'):
+                table.df.loc[i-1, 'Description'] = table.df.loc[i-1, 'Description'] + ' | ' + table.df.loc[i, 'Description']
+                table.df.loc[i, 'Description'] = ''
+            if table.df.loc[i, 'Date'].strip() and table.df.loc[i, 'Credit ($)'].strip(): # Check if the date and amount rows are empty for the current row
+                table.df.iloc[i, 1] = account_number # Add in the account number
+            if table.df.loc[i, 'Credit ($)'].startswith('-'): #Check if the value is negative
+                table.df.loc[i, 'Debit ($)'] = table.df.loc[i, 'Credit ($)'][1:] # Copy the value to the debit column and make it positive
+                table.df.loc[i, 'Credit ($)'] = '' # Erase the original value
+        table.df['Description'] = table.df['Description'].str.replace('\n', ' | ')
         table.df = table.df[table.df.iloc[:, 2].str.strip() != ''] # Drop rows where the description is empty OR indicates no activity
         table.df = table.df[table.df.iloc[:, 2].str.strip() != 'No activity for this period'] # Drop rows where the description is empty OR indicates no activity
-
-        
 
         dataframes.append(table.df) # Append the DataFrame to the list
 
@@ -376,11 +405,18 @@ def post_extraction_processing(dataframes): # Handles additional formatting of f
     #data = data.dropna(how='all') # Drop rows that are completely empty in all columns
     
     # Remove rows containing headers
-    headers_to_exclude = ["Date", re.escape(".*"), "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
-    for header in headers_to_exclude:
-        data = data[~data.apply(lambda row: header in " ".join(row.astype(str)), axis=1)]
+    # headers_to_exclude = ["Date", re.escape(".*"), "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
+    # for header in headers_to_exclude:
+    #     data = data[~data.apply(lambda row: header in " ".join(row.astype(str)), axis=1)]
 
-    data.columns = ["Date", "Account #", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
+    headers_set1 = ["Date", re.escape(".*"), "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
+    headers_set2 = [r"TRANSACTION POSTING\nDATE", re.escape(".*"), "ACTIVITY DESCRIPTION", "AMOUNT ($)", re.escape(".*"), re.escape(".*")]
+    #headers_set2 = ["TRANSACTION POSTING\nDATE", "ACTIVITY DESCRIPTION", "AMOUNT ($)"]
+    for headers_to_exclude in [headers_set1, headers_set2]:
+        for header in headers_to_exclude:
+            data = data[~data.apply(lambda row: header in " ".join(row.astype(str)), axis=1)]
+
+    data.columns = ["Date", "Account #", "Description", "Credit ($)", "Debit ($)", "Balance ($)"]
 
     # Forward-fill missing dates in the "Date" column
     data["Date"].fillna(method='ffill', inplace=True)
@@ -464,7 +500,7 @@ def process_pdfs(): # Function to process PDFs and save data to CSV
             # Run the main script and capture the terminal output in the log file
             subprocess.call(['python', 'pdf2csv.py'], stdout=log_file, stderr=subprocess.STDOUT)
 
-        # Move the log file to the PDF directory
+        # Move the log file to the PDF directory - not working properly, currently, due to a windows conflict
         if os.path.exists(log_file):
             #log_file_dest = PDF_DIR + r'\!pdf2csv_script_log.txt'
             log_file_dest = r'\!pdf2csv_script_log.txt'
