@@ -11,13 +11,14 @@ import logging
 import subprocess
 from tqdm import tqdm
 from mysecrets import PDF_DIR, CSV_FILE
+from datetime import datetime
 
 # Turn on for logging during testing!
 print_all = 'off'
 print_extract = 'off'
-print_page = 'off'
+print_page = 'on'
 print_plot = 'off'
-print_logs = 'off'
+print_logs = 'on'
 print_errors = 'off'
 print_trace = 'on'
 #print_progress = 'off'
@@ -34,7 +35,7 @@ if print_errors == 'off':
     warnings.filterwarnings("ignore") # Suppress PDFReadWarnings
 
 headers_to_include = ["Date", "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"] # Global variable to define headers to include
-credit_headers_to_include = ["TRANSACTION", "ACTIVITY DESCRIPTION", "AMOUNT ($)"] # Global variable to define the credit headers to include
+credit_headers_to_include = ["DATE", "ACTIVITY DESCRIPTION", "AMOUNT ($)"] # Global variable to define the credit headers to include
 
 def get_pdf_files_recursive(PDF_DIR): # Function to get a list of PDF files in a directory and its subdirectories
     pdf_files = []
@@ -212,6 +213,8 @@ def extract_account_tables_with_camelot(pdf_path, year, year2, account_number): 
         if not end_index.empty:
             table.df = table.df.loc[:end_index.values[0] - 1]
 
+        print(table.df)
+
         #Append the year to the "Date" column for non-empty rows
         if year == year2:
             table.df["Date"] = [f"{date}, {year}" if (date.strip() and date != "Date") else date for date in table.df["Date"]]
@@ -326,14 +329,20 @@ def extract_credit_tables_with_camelot(pdf_path, year, year2, account_number):
 
         # Identify the columns that contain any of the required headers
         selected_columns = []
+        date_flag = False
         for col in table.df.columns:
             if table.df[col].apply(lambda x: any(substring in str(x) for substring in credit_headers_to_include)).any():
                 new_col_name = f"{table.df[col].iloc[0]}"
                 if 'DATE' in new_col_name: # Look for date in the new column name
-                    new_col_name = 'Date'
-                if 'DESCRIPTION' in new_col_name: # Look for description in the new column name
+                    if not date_flag:
+                        new_col_name = 'Date'
+                        date_flag = True # Sets the flag after the first date occurance, ignoring the second
+                    else:
+                        table.df.drop(columns=[col], inplace=True)
+                        continue # Skips to the next interation of the loop
+                elif 'DESCRIPTION' in new_col_name: # Look for description in the new column name
                     new_col_name = 'Description'
-                if 'AMOUNT ($)' in new_col_name: # Look for description in the new column name
+                elif 'AMOUNT ($)' in new_col_name: # Look for description in the new column name
                     new_col_name = 'Credit ($)'
                 table.df.rename(columns={col: new_col_name}, inplace=True) # rename the columns
                 selected_columns.append(new_col_name)
@@ -349,11 +358,18 @@ def extract_credit_tables_with_camelot(pdf_path, year, year2, account_number):
         if not end_index_nb.empty:
             table.df = table.df.loc[:end_index_nb.values[0] - 1]
 
+        print("----AFTER----")
+        print(table.df.columns)
+        print(table.df)
         #Append the year to the "Date" column for non-empty rows
         if year == year2:
             table.df["Date"] = [f"{date}, {year}" if (date.strip() and date != "Date") else date for date in table.df["Date"]]
         else:
             table.df["Date"] = [f"{date}, {year2}" if "JAN" in date and (date.strip() and date != "Date") else f"{date}, {year}" if (date.strip() and date != "Date") else date for date in table.df["Date"]]
+
+        # Convert the 'Date' column to the new format only if it matches the original format
+        #table.df['Date'] = table.df['Date'].apply(lambda x: datetime.strptime(x, '%b %d, %Y').strftime('%d %b, %Y') if re.match(r'^(?i)[a-z]{3} \d{2}, \d{4}$', x) else x)
+        table.df['Date'] = table.df['Date'].apply(lambda x: datetime.strptime(x, '%b %d, %Y').strftime('%d %b, %Y') if re.match(r'^[A-Z]{3} \d{2}, \d{4}$', x) else x)
 
         # Adds the account number to the table
         table.df.insert(1, "Account #", "") # Insert new column for Account Numbers
@@ -410,7 +426,7 @@ def post_extraction_processing(dataframes): # Handles additional formatting of f
     #     data = data[~data.apply(lambda row: header in " ".join(row.astype(str)), axis=1)]
 
     headers_set1 = ["Date", re.escape(".*"), "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
-    headers_set2 = [r"TRANSACTION POSTING\nDATE", re.escape(".*"), "ACTIVITY DESCRIPTION", "AMOUNT ($)", re.escape(".*"), re.escape(".*")]
+    headers_set2 = [r"*DATE", re.escape(".*"), "ACTIVITY DESCRIPTION", "AMOUNT ($)", re.escape(".*"), re.escape(".*")]
     #headers_set2 = ["TRANSACTION POSTING\nDATE", "ACTIVITY DESCRIPTION", "AMOUNT ($)"]
     for headers_to_exclude in [headers_set1, headers_set2]:
         for header in headers_to_exclude:
