@@ -16,11 +16,11 @@ from datetime import datetime
 # Turn on for logging during testing!
 print_all = 'off'
 print_extract = 'off'
-print_page = 'on'
+print_page = 'off'
 print_plot = 'off'
-print_logs = 'on'
+print_logs = 'off'
 print_errors = 'off'
-print_trace = 'on'
+print_trace = 'off'
 #print_progress = 'off'
 
 if print_all == 'on':
@@ -112,7 +112,6 @@ def extract_account_tables_with_camelot(pdf_path, year, year2, account_number): 
 
     # Extract data from pages with camelot-py and combines
     tables_pgs = []
-    
     tables_pg1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=32, column_tol=2, row_tol=2, suppress_stdout=True) # Extract pg 1 with explicit parameters
     cleaned_pg1 = [table for table in tables_pg1 if table.shape[1] >= 5]
     if len(cleaned_pg1) == 0:
@@ -213,15 +212,12 @@ def extract_account_tables_with_camelot(pdf_path, year, year2, account_number): 
         if not end_index.empty:
             table.df = table.df.loc[:end_index.values[0] - 1]
 
-        print(table.df)
-
         #Append the year to the "Date" column for non-empty rows
         if year == year2:
             table.df["Date"] = [f"{date}, {year}" if (date.strip() and date != "Date") else date for date in table.df["Date"]]
         else:
             table.df["Date"] = [f"{date}, {year2}" if "Jan" in date and (date.strip() and date != "Date") else f"{date}, {year}" if (date.strip() and date != "Date") else date for date in table.df["Date"]]
 
-        # Adds the account number to the table
         table.df.insert(1, "Account #", "") # Insert new column for Account Numbers
 
         # Fixes multiline concatenation - loops through the DataFrame starting from the second row
@@ -234,15 +230,6 @@ def extract_account_tables_with_camelot(pdf_path, year, year2, account_number): 
                     table.df.iloc[i+1, 0] = table.df.iloc[i, 0] + table.df.iloc[i+1, 0] # Concatenate the date with the next row's date
         table.df = table.df[table.df.iloc[:, 2].str.strip() != ''] # Drop rows where the description is empty OR indicates no activity
         table.df = table.df[table.df.iloc[:, 2].str.strip() != 'No activity for this period'] # Drop rows where the description is empty OR indicates no activity
-
-        # for col in table.df.columns: # Renames the columns for consistency with credit statements
-        #     if table.df[col].apply(lambda x: any(substring in str(x) for substring in headers_to_include)).any():
-        #         new_col_name = f"{table.df[col].iloc[0]}"
-        #         if 'Withdrawals ($)' in new_col_name: # Look for withdrawals in the new column name
-        #             new_col_name = 'Credit ($)'
-        #         if 'Deposits ($)' in new_col_name: # Look for description in the new column name
-        #             new_col_name = 'Debit ($)'
-        #         table.df.rename(columns={col: new_col_name}, inplace=True) # rename the columns
         
         dataframes.append(table.df) # Append the DataFrame to the list
 
@@ -263,25 +250,13 @@ def extract_credit_tables_with_camelot(pdf_path, year, year2, account_number):
 
     # Extract data from pages with camelot-py and combines
     tables_pgs = []
-    #table_areas = ['50, 720, 360, 50']
     table_areas = ['50, 595, 360, 50']
     column_bounds = ['95.8, 125, 306']
     
     tables_pg1 = camelot.read_pdf(pdf_path, flavor='stream', table_areas=table_areas, columns=column_bounds, pages='1', edge_tol=1, column_tol=0, row_tol=10, suppress_stdout=True) # Extract pg 1 with explicit parameters
-    #tables_pg1 = camelot.read_pdf(pdf_path, flavor='stream', columns=column_bounds, pages='1', edge_tol=1, column_tol=1, row_tol=10, suppress_stdout=True) # Extract pg 1 with explicit parameters
     cleaned_pg1 = [table for table in tables_pg1 if table.shape[1] >= 3]
-    # if len(cleaned_pg1) == 0:
-    #     tables_pg1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=50, suppress_stdout=True) # When the right tables aren't found, adjust the parameters to try a better tolerance
-    #     cleaned_pg1 = [table for table in tables_pg1 if table.shape[1] >= 1]
-    #     if len(cleaned_pg1) == 0:
-    #         tables_pg1 = camelot.read_pdf(pdf_path, flavor='stream', pages='1', edge_tol=100, suppress_stdout=True) # When the 5 column table isn't found, adjust for a 4 column table
-    #         cleaned_pg1 = [table for table in tables_pg1 if table.shape[1] >= 1]
-
     tables_pg2p = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=1, column_tol=0, row_tol=10, suppress_stdout=True) # Extract all pages after 1 with alternate parameters
     cleaned_pg2p = [table for table in tables_pg2p if table.shape[1] >= 3]
-    # if len(cleaned_pg2p) == 0:
-    #     tables_pg2p = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=22, column_tol=2, row_tol=2, suppress_stdout=True) # When the right tables aren't found, adjust the parameters to try a better tolerance
-    #     cleaned_pg2p = [table for table in tables_pg2p if table.shape[1] >= 1]
 
     # Combines tables series
     tables_pgs.extend(cleaned_pg1)
@@ -318,8 +293,7 @@ def extract_credit_tables_with_camelot(pdf_path, year, year2, account_number):
         if table.df.empty:
             continue
 
-        # Find the index of the header row
-        header_index = table.df[table.df.apply(lambda row: row.str.contains("activity description", case=False).any(), axis=1)].index
+        header_index = table.df[table.df.apply(lambda row: row.str.contains("activity description", case=False).any(), axis=1)].index # Find the index of the header row
         if print_all == 'on':
             print("Header index: " + str(header_index))
         if len(header_index) > 0:
@@ -358,9 +332,6 @@ def extract_credit_tables_with_camelot(pdf_path, year, year2, account_number):
         if not end_index_nb.empty:
             table.df = table.df.loc[:end_index_nb.values[0] - 1]
 
-        print("----AFTER----")
-        print(table.df.columns)
-        print(table.df)
         #Append the year to the "Date" column for non-empty rows
         if year == year2:
             table.df["Date"] = [f"{date}, {year}" if (date.strip() and date != "Date") else date for date in table.df["Date"]]
@@ -368,10 +339,8 @@ def extract_credit_tables_with_camelot(pdf_path, year, year2, account_number):
             table.df["Date"] = [f"{date}, {year2}" if "JAN" in date and (date.strip() and date != "Date") else f"{date}, {year}" if (date.strip() and date != "Date") else date for date in table.df["Date"]]
 
         # Convert the 'Date' column to the new format only if it matches the original format
-        #table.df['Date'] = table.df['Date'].apply(lambda x: datetime.strptime(x, '%b %d, %Y').strftime('%d %b, %Y') if re.match(r'^(?i)[a-z]{3} \d{2}, \d{4}$', x) else x)
         table.df['Date'] = table.df['Date'].apply(lambda x: datetime.strptime(x, '%b %d, %Y').strftime('%d %b, %Y') if re.match(r'^[A-Z]{3} \d{2}, \d{4}$', x) else x)
 
-        # Adds the account number to the table
         table.df.insert(1, "Account #", "") # Insert new column for Account Numbers
         table.df.insert(4, "Debit ($)", "") # Insert new debit column for splitting negative values to
         table.df.insert(5, "Balance ($)", "") # Insert a balance column to match the account statements for consistency in processing
@@ -406,36 +375,24 @@ def post_extraction_processing(dataframes): # Handles additional formatting of f
     for df in dataframes:
         if df.index.duplicated().any():
             print("Duplicate index values found in a Dataframe")
-    
-    # Reset the index of each DataFrame
-    dataframes = [df.reset_index(drop=True) for df in dataframes]
+
+    dataframes = [df.reset_index(drop=True) for df in dataframes] # Reset the index of each DataFrame
 
     data = pd.concat(dataframes, ignore_index=True) # Concatenate all dataframes into a single DataFrame
-    #pd.set_option('display.max_rows', None)
-
     
     if pd.isna(data.iloc[0, -1]): # Drop the last column of NaN values
         data = data.drop(data.columns[-1], axis=1)
-
     data = data.replace('', np.nan) # Replace empty strings with NaN
-    #data = data.dropna(how='all') # Drop rows that are completely empty in all columns
-    
-    # Remove rows containing headers
-    # headers_to_exclude = ["Date", re.escape(".*"), "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
-    # for header in headers_to_exclude:
-    #     data = data[~data.apply(lambda row: header in " ".join(row.astype(str)), axis=1)]
-
     headers_set1 = ["Date", re.escape(".*"), "Description", "Withdrawals ($)", "Deposits ($)", "Balance ($)"]
     headers_set2 = [r"*DATE", re.escape(".*"), "ACTIVITY DESCRIPTION", "AMOUNT ($)", re.escape(".*"), re.escape(".*")]
-    #headers_set2 = ["TRANSACTION POSTING\nDATE", "ACTIVITY DESCRIPTION", "AMOUNT ($)"]
+    
     for headers_to_exclude in [headers_set1, headers_set2]:
         for header in headers_to_exclude:
             data = data[~data.apply(lambda row: header in " ".join(row.astype(str)), axis=1)]
 
     data.columns = ["Date", "Account #", "Description", "Credit ($)", "Debit ($)", "Balance ($)"]
 
-    # Forward-fill missing dates in the "Date" column
-    data["Date"].fillna(method='ffill', inplace=True)
+    data["Date"].fillna(method='ffill', inplace=True) # Forward-fill missing dates in the "Date" column
 
     return data
 
