@@ -108,7 +108,9 @@ def extract_account_tables_with_camelot(pdf_path, year, year2, account_number): 
     
     # Set pandas display to show all columns
     pd.set_option('display.max_columns', None)
+    pd.set_option('display.max_rows', None)
     pd.set_option('display.width', None)
+    pd.set_option('display.max_colwidth', None)
 
     # Extract data from pages with camelot-py and combines
     tables_pgs = []
@@ -126,12 +128,15 @@ def extract_account_tables_with_camelot(pdf_path, year, year2, account_number): 
     if len(cleaned_pg2p) == 0:
         tables_pg2p = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=22, column_tol=2, row_tol=2, suppress_stdout=True) # When the right tables aren't found, adjust the parameters to try a better tolerance
         cleaned_pg2p = [table for table in tables_pg2p if table.shape[1] >= 5]
+        if len(cleaned_pg2p) == 0:
+            tables_pg2p = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=9, column_tol=2, row_tol=2, suppress_stdout=True) # When the right tables aren't found, adjust the parameters to try a better tolerance
+            cleaned_pg2p = [table for table in tables_pg2p if table.shape[1] >= 4]
 
     # Combines tables series
     tables_pgs.extend(cleaned_pg1)
     tables_pgs.extend(cleaned_pg2p)
 
-    if print_all == 'on': # Print the parsing report
+    if print_logs == 'on': # Print the parsing report
         print("")
         print("Parsing Report")
         if len(tables_pgs) == 0:
