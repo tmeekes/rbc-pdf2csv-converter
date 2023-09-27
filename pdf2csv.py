@@ -20,7 +20,7 @@ print_page = 'off'
 print_plot = 'off'
 print_logs = 'off'
 print_errors = 'off'
-print_trace = 'off'
+print_trace = 'on'
 #print_progress = 'off'
 
 if print_all == 'on':
@@ -169,26 +169,34 @@ def extract_account_tables_with_camelot(pdf_path, year, year2, account_number): 
 
         # Find the index of the header row
         header_index = table.df[table.df.apply(lambda row: all(header in " ".join(row) for header in headers_to_include), axis=1)].index
-        if print_all == 'on':
+        if print_logs == 'on':
             print("Header index: " + str(header_index))
         if len(header_index) > 0:
             table.df = table.df.iloc[header_index[0]:] # If the header row is found, set the DataFrame to rows starting from that index
             try: # Fix for PDF extracts that concat Date & Description columns
-                string_to_find = "Date\nDescription" # Sets the name to find (based on the desired column name) from the contents
-                is_match = table.df.iloc[0].isin([string_to_find]) # Check if the first row contains the specified string
+                is_match = table.df.iloc[0].isin(["Date\nDescription"]) # Check if the first row contains the specified string
                 if any(is_match):
                     col_index = int(is_match[is_match].index[0]) # Get the column index where the match is True
                     table.df.insert(col_index, 'Date', table.df[col_index]) # Duplicate the column to the left by inserting it at the same index
                     table.df.loc[~table.df['Date'].str.contains(r'\n'), 'Date'] = "" # In the date column, replace any values that don't have "\n" in them with " "
                     table.df['Date'] = table.df['Date'].str.replace(r'\n.*', '', regex=True) # In the date column, trim "\n"
                     # In the description column, trim anything from the "\" of the first "\n"
-                    is_match = table.df.iloc[0].isin([string_to_find]) # Check if the first row contains the specified string
+                    is_match = table.df.iloc[0].isin(["Date\nDescription"]) # Check if the first row contains the specified string
                     col_index = int(is_match[is_match].index[0]) # Get the column index where the match is True
                     table.df[col_index] = table.df[col_index].str.replace(r'.*\n', '', regex=True)
-                    if print_all == 'on':
+                    if print_logs == 'on':
                         print("---------")
                         print("Fix for concatenated Date & Description columns:")
                         print(table.df)
+                else:
+                    is_match = table.df.iloc[0].str.contains(r'.*\nDate', case=False, na=False)
+                    if is_match.any():
+                        col_index = int(is_match[is_match].index[0]) # Get the column index where the match is True
+                        table.df[col_index] = table.df[col_index].str.replace(r'.*\nDate', 'Date', regex=True)
+                        if print_all == 'on':
+                            print("---------")
+                            print("Fix for concatenated Date & vertical first column:")
+                            print(table.df)
             except ValueError: # Handle the case where the column name is not found
                 print(r"Column 'Date\nDescription' not found")
         else:
@@ -256,11 +264,12 @@ def extract_credit_tables_with_camelot(pdf_path, year, year2, account_number):
     # Extract data from pages with camelot-py and combines
     tables_pgs = []
     table_areas = ['50, 595, 360, 50']
-    column_bounds = ['95.8, 125, 306']
+    table_areas2 = ['50, 608, 360, 50']
+    column_bounds = ['94, 125, 306']
     
-    tables_pg1 = camelot.read_pdf(pdf_path, flavor='stream', table_areas=table_areas, columns=column_bounds, pages='1', edge_tol=1, column_tol=0, row_tol=10, suppress_stdout=True) # Extract pg 1 with explicit parameters
+    tables_pg1 = camelot.read_pdf(pdf_path, flavor='stream', table_areas=table_areas, columns=column_bounds, pages='1', edge_tol=1, column_tol=0, row_tol=6, suppress_stdout=True) # Extract pg 1 with explicit parameters
     cleaned_pg1 = [table for table in tables_pg1 if table.shape[1] >= 3]
-    tables_pg2p = camelot.read_pdf(pdf_path, flavor='stream', pages='2-end', edge_tol=1, column_tol=0, row_tol=10, suppress_stdout=True) # Extract all pages after 1 with alternate parameters
+    tables_pg2p = camelot.read_pdf(pdf_path, flavor='stream', table_areas=table_areas2, columns=column_bounds, pages='2-end', edge_tol=1, column_tol=0, row_tol=6, suppress_stdout=True) # Extract all pages after 1 with alternate parameters
     cleaned_pg2p = [table for table in tables_pg2p if table.shape[1] >= 3]
 
     # Combines tables series
@@ -352,18 +361,28 @@ def extract_credit_tables_with_camelot(pdf_path, year, year2, account_number):
 
         # Loops through the DataFrame starting from the second row to fix multiline concatenation, split out negative values to the debit column, add the account number
         table.df = table.df.reset_index(drop=True)
+        table.df['Description'] = table.df['Description'].str.replace('\n', ' | ')
         for i in range(1, len(table.df)):
-            if table.df.loc[i, 'Description'].lower().startswith('foreign currency'):
+            if re.search(r"\b\d{23}\b", table.df.loc[i, 'Description']):
+                if i + 1 in table.df.index and table.df.loc[i+1, 'Description'].startswith('Foreign Currency'): # Searches for Foreign currency lines and merges them with their transaction line
+                    table.df.loc[i, 'Description'] = table.df.loc[i, 'Description'] + ' | ' + table.df.loc[i+1, 'Description']
+                    table.df.loc[i+1, 'Description'] = ''
                 table.df.loc[i-1, 'Description'] = table.df.loc[i-1, 'Description'] + ' | ' + table.df.loc[i, 'Description']
                 table.df.loc[i, 'Description'] = ''
+            if table.df.loc[i, 'Description'].startswith('CASH BACK') and i + 1 in table.df.index and re.search(r"\d{10}", table.df.loc[i+1, 'Description']): # Searches for cash back credits and merges them with thier transaction line
+                table.df.loc[i, 'Description'] = table.df.loc[i, 'Description'] + ' | ' + table.df.loc[i+1, 'Description']
+                table.df.loc[i+1, 'Description'] = ''
+            if table.df.loc[i, 'Description'].startswith('OFFER RONA') and i + 1 in table.df.index and re.search(r".*\d{10,}", table.df.loc[i+1, 'Description']): # Searches for cash back credits and merges them with thier transaction line
+                table.df.loc[i, 'Description'] = table.df.loc[i, 'Description'] + ' | ' + table.df.loc[i+1, 'Description']
+                table.df.loc[i+1, 'Description'] = ''
             if table.df.loc[i, 'Date'].strip() and table.df.loc[i, 'Credit ($)'].strip(): # Check if the date and amount rows are empty for the current row
                 table.df.iloc[i, 1] = account_number # Add in the account number
             if table.df.loc[i, 'Credit ($)'].startswith('-'): #Check if the value is negative
                 table.df.loc[i, 'Debit ($)'] = table.df.loc[i, 'Credit ($)'][1:] # Copy the value to the debit column and make it positive
                 table.df.loc[i, 'Credit ($)'] = '' # Erase the original value
-        table.df['Description'] = table.df['Description'].str.replace('\n', ' | ')
-        table.df = table.df[table.df.iloc[:, 2].str.strip() != ''] # Drop rows where the description is empty OR indicates no activity
-        table.df = table.df[table.df.iloc[:, 2].str.strip() != 'No activity for this period'] # Drop rows where the description is empty OR indicates no activity
+        table.df = table.df[table.df.iloc[:, 2].str.strip() != ''] # Drop rows where the description is empty
+        table.df = table.df[table.df.iloc[:, 2].str.strip() != 'No activity for this period'] # Drop rows where the description indicates no activity
+        table.df = table.df[table.df.iloc[:, 2].str.strip() != 'SUBTOTAL OF MONTHLY ACTIVITY'] # Drop rows where the description indicates no activity
 
         dataframes.append(table.df) # Append the DataFrame to the list
 
