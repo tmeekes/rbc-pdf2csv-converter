@@ -1,3 +1,16 @@
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# A copy of the GNU General Public License can be found at
+# <https://www.gnu.org/licenses/>.
+
 import os
 import pandas as pd
 import numpy as np #Import numpy to handle NaN values
@@ -46,6 +59,7 @@ def get_pdf_files_recursive(PDF_DIR): # Function to get a list of PDF files in a
     return pdf_files
 
 def pypdf2_extract_from_pdf(pdf_path): # Uses PyPDF2 to extract initial information from account statements (account #, year)
+    statement_type = "unknown"
     with open(pdf_path, 'rb') as pdf_file:
         pdf_reader = PyPDF2.PdfFileReader(pdf_file)
         pypdf2_full_extract = ""
