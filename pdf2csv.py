@@ -321,7 +321,7 @@ def extract_credit_tables_with_camelot(pdf_path, year, year2, account_number):
         if table.df.empty:
             continue
 
-        header_index = table.df[table.df.apply(lambda row: row.str.contains("activity description", case=False).any(), axis=1)].index # Find the index of the header row
+        header_index = table.df[table.df.apply(lambda row: row.str.contains("ACTIVITY DESCRIPTION", case=True).any(), axis=1)].index # Find the index of the header row
         if print_all == 'on':
             print("Header index: " + str(header_index))
         if len(header_index) > 0:
