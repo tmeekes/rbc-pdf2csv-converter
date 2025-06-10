@@ -18,6 +18,8 @@ This project started out of frustration that RBC only provides CSV downloads for
 
 So I built this python script to extract data from the 6 years worth of PDFs that they store instead, converting in to a single CSV. It should work with minimal issues on most account statments and credit statments, though YMMV since I've only tested it on my scenario. Does not handle Credit Line statements - though that could be built in, I just didn't find the need for it.
 
+If you fork the project, give me a shout and let me know - it would be interesting to see how people improve this spaghetti.
+
 ## Getting Started
 
 Clone or download this repository to your local machine, cd to the directory.
